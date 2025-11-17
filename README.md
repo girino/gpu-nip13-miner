@@ -5,14 +5,39 @@ A high-performance GPU-accelerated miner for NIP-13 proof-of-work (PoW) on Nostr
 ## Features
 
 - **GPU Acceleration**: Uses OpenCL to mine on GPUs (NVIDIA, Intel, AMD) or CPUs
+- **Multiple Kernel Implementations**: Choose from 6 different optimized SHA256 kernels
+- **Automatic Kernel Selection**: Automatically selects the best kernel for your device
 - **Dynamic Batch Sizing**: Automatically optimizes batch size based on difficulty, or configure manually
 - **Device Selection**: List and select specific OpenCL devices
 - **Progress Tracking**: Real-time progress bar showing nonce rate and percentage relative to expected iterations
+- **Comprehensive Benchmarking**: Test all kernels and batch sizes to find optimal configuration
+- **Kernel Validation**: Test all kernels to verify correctness
 - **Cross-Platform**: Works on Linux, Windows, and macOS
+
+## Kernel Implementations
+
+The miner includes multiple OpenCL kernel implementations, each optimized for different hardware:
+
+- **default**: Our original implementation, optimized for CPUs and Intel GPUs
+- **ckolivas**: Adapted from sgminer's ckolivas kernel, optimized for NVIDIA and AMD GPUs
+- **phatk**: Adapted from bfgminer's phatk kernel
+- **diakgcn**: Adapted from bfgminer's diakgcn kernel
+- **diablo**: Adapted from bfgminer's diablo kernel
+- **poclbm**: Adapted from bfgminer's poclbm kernel
+
+The `-kernel auto` option (default) automatically selects the best kernel based on your device:
+- CPUs and Intel GPUs → `default`
+- NVIDIA, AMD, and other GPUs → `ckolivas`
+
+You can manually select a kernel using the `-kernel` flag. Use `-benchmark` to test all kernels and find the best one for your hardware.
+
+All kernels are located in the `kernel/` directory:
+- Original kernels are kept for reference (not used in compilation)
+- Adapted kernels (with `-adapted` suffix) are the versions modified for NIP-13 mining
 
 ## Performance Benchmarks
 
-Performance varies significantly based on the OpenCL device used. Use the `-benchmark` option to find the optimal batch size for your hardware.
+Performance varies significantly based on the OpenCL device and kernel used. Use the `-benchmark` option to test all kernels and find the optimal configuration for your hardware.
 
 ### CPU Performance
 **~1M nonces/s** with Intel Core i5-9500T CPU (optimal batch size: 10^4)
@@ -125,6 +150,8 @@ Batch size is specified as a power of 10:
 - `4` = 10,000 nonces per batch
 - `5` = 100,000 nonces per batch
 - `6` = 1,000,000 nonces per batch
+- `7` = 10,000,000 nonces per batch
+- Up to `10` = 10,000,000,000 nonces per batch
 
 ```bash
 ./gpu-nostr-pow -batch-size 5 -difficulty 16
@@ -132,40 +159,114 @@ Batch size is specified as a power of 10:
 
 Use `-1` (default) for auto-detection based on difficulty.
 
+**Note**: For CPU devices, batch sizes larger than 10^4 (10,000) may cause segmentation faults. The benchmark automatically limits CPU batch sizes to prevent this.
+
+### Select Kernel
+
+Choose a specific kernel implementation:
+
+```bash
+./gpu-nostr-pow -kernel ckolivas -difficulty 16
+```
+
+Available kernels: `default`, `ckolivas`, `phatk`, `diakgcn`, `diablo`, `poclbm`, or `auto` (default, selects based on device).
+
 ### Verbose Logging
 
 ```bash
 ./gpu-nostr-pow -verbose -difficulty 16
 ```
 
-### Benchmark Batch Sizes
+In verbose mode, the selected kernel is printed to stderr.
 
-Test different batch sizes to find the optimal one for your hardware:
+### Benchmark All Kernels
+
+Test all kernels and batch sizes to find the optimal configuration:
 
 ```bash
 ./gpu-nostr-pow -benchmark
 ```
 
-This will test batch sizes from 1,000 to 1,000,000, running each for at least 10 seconds, and report which performs best.
+This will:
+- Test all 6 kernel implementations
+- For each kernel, test batch sizes from 1,000 (10^3) to 10,000,000,000 (10^10)
+- For CPU devices, batch size is limited to 10,000 (10^4) to avoid segfaults
+- Run each combination 3 times (5 seconds each) with different events
+- Display a summary table with the best batch size for each kernel
+- Provide a final recommendation with the best kernel and batch size
+
+Example output:
+```
+=== Benchmark Summary ===
+Kernel       Best Batch Size      Performance
+------       -------------      ------------
+default      10^5                1.25M nonces/s
+ckolivas     10^6                2.80M nonces/s
+phatk        10^5                1.15M nonces/s
+...
+
+=== Recommendation ===
+Best kernel: ckolivas
+Best batch size: 10^6 (1000000)
+Performance: 2.80M nonces/s
+
+Use: -kernel ckolivas -batch-size 6
+```
+
+### Test Kernel Correctness
+
+Verify that all kernels produce correct results:
+
+```bash
+./gpu-nostr-pow -test-kernels -difficulty 20
+```
+
+This will:
+- Test each kernel 10 times with random events
+- Report correct/wrong/error counts for each kernel
+- Display a summary table at the end
+- Useful for validating kernel implementations after modifications
 
 ## Command-Line Options
 
 - `-difficulty <n>`: Number of leading zero bits required (default: 16)
-- `-batch-size <n>`: Batch size as power of 10 (4=10000, 5=100000, etc.). Use -1 for auto-detect (default: -1)
+- `-batch-size <n>`: Batch size as power of 10 (4=10000, 5=100000, etc.). Use -1 for auto-detect (default: -1). Maximum: 10 (10^10)
+- `-kernel <name>`: Kernel implementation to use: `auto` (default, selects based on device), `default`, `ckolivas`, `phatk`, `diakgcn`, `diablo`, or `poclbm`
 - `-list-devices`, `-l`: List available OpenCL devices and exit
 - `-device <n>`, `-d <n>`: Select device by index from list
-- `-benchmark`: Benchmark different batch sizes to find optimal value
-- `-verbose`: Enable verbose logging
+- `-benchmark`: Test all kernels and batch sizes to find optimal configuration
+- `-test-kernels`: Test all kernels with random events to verify correctness
+- `-verbose`: Enable verbose logging (shows selected kernel)
 
 ## How It Works
 
 1. Reads a Nostr event JSON from stdin
 2. Calculates the required number of leading zero bits based on difficulty
-3. Uses OpenCL to test nonces in parallel batches
-4. Finds a nonce that produces the required number of leading zero bits
-5. Outputs the event JSON with the `nonce` and `pow` fields populated
+3. Selects an appropriate OpenCL kernel (automatically or manually)
+4. Uses OpenCL to test nonces in parallel batches on the GPU/CPU
+5. Validates candidate nonces on the CPU to ensure correctness
+6. Finds a nonce that produces the required number of leading zero bits
+7. Outputs the event JSON with the `nonce` tag and updated `id` field
 
-The miner dynamically adjusts the number of digits in the nonce based on the difficulty level, ensuring sufficient range to find valid nonces.
+The miner dynamically adjusts the number of digits in the nonce based on the difficulty level, ensuring sufficient range to find valid nonces. The OpenCL kernel returns only the index of a found nonce, reducing memory bandwidth by ~90% compared to returning full hash results.
+
+## Kernel Organization
+
+All OpenCL kernel files are organized in the `kernel/` directory:
+
+- **Original kernels**: Reference files from upstream projects (sgminer, bfgminer)
+  - `ckolivas.cl` - Original from sgminer
+  - `bfgminer-*.cl` - Originals from bfgminer (phatk, diakgcn, diablo, poclbm)
+  
+- **Adapted kernels**: Modified versions for NIP-13 mining (used in compilation)
+  - `mine.cl` - Our original implementation
+  - `ckolivas-adapted.cl` - Adapted from sgminer's ckolivas
+  - `bfgminer-*-adapted.cl` - Adapted from bfgminer kernels
+
+Each adapted kernel includes comments indicating:
+- That it was modified from the original
+- Link to the original source repository
+- Description of changes made
 
 ## License
 
