@@ -53,9 +53,19 @@ Platform 0: NVIDIA CUDA (NVIDIA Corporation)
 
 ### Linux
 
+Use the provided Makefile (recommended):
+
 ```bash
-go build -o gpu-nostr-pow
+make build
 ```
+
+Or build directly:
+
+```bash
+make
+```
+
+The Makefile includes all necessary CGO flags for OpenCL compilation.
 
 ### Windows
 
@@ -128,12 +138,23 @@ Use `-1` (default) for auto-detection based on difficulty.
 ./gpu-nostr-pow -verbose -difficulty 16
 ```
 
+### Benchmark Batch Sizes
+
+Test different batch sizes to find the optimal one for your hardware:
+
+```bash
+./gpu-nostr-pow -benchmark
+```
+
+This will test batch sizes from 1,000 to 1,000,000, running each for at least 10 seconds, and report which performs best.
+
 ## Command-Line Options
 
 - `-difficulty <n>`: Number of leading zero bits required (default: 16)
 - `-batch-size <n>`: Batch size as power of 10 (4=10000, 5=100000, etc.). Use -1 for auto-detect (default: -1)
 - `-list-devices`, `-l`: List available OpenCL devices and exit
 - `-device <n>`, `-d <n>`: Select device by index from list
+- `-benchmark`: Benchmark different batch sizes to find optimal value
 - `-verbose`: Enable verbose logging
 
 ## How It Works
