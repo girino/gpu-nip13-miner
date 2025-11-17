@@ -531,9 +531,21 @@ clReleaseContext
             $defContent | Out-File -FilePath $defFile -Encoding ASCII
             
             # Create import library using dlltool
-            $dlltoolOutput = & $dlltoolPath --dllname $openclDll --def $defFile --output-lib $importLib 2>&1
-            if ($LASTEXITCODE -eq 0 -and (Test-Path $importLib)) {
-                Write-Host "  Created import library: $importLib" -ForegroundColor Green
+            # dlltool needs just the DLL name, not the full path
+            $dllName = "OpenCL.dll"
+            # Get absolute paths for def and output files
+            $defFileAbs = [System.IO.Path]::GetFullPath($defFile)
+            $importLibAbs = [System.IO.Path]::GetFullPath($importLib)
+            # Change to System32 directory so dlltool can find the DLL
+            Push-Location "C:\Windows\System32"
+            try {
+                $dlltoolOutput = & $dlltoolPath --dllname $dllName --def $defFileAbs --output-lib $importLibAbs 2>&1
+            } finally {
+                Pop-Location
+            }
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $importLibAbs)) {
+                Write-Host "  Created import library: $importLibAbs" -ForegroundColor Green
+                $importLib = $importLibAbs
             } else {
                 Write-Host "  Warning: Failed to create import library with dlltool" -ForegroundColor Yellow
                 Write-Host "  Output: $dlltoolOutput" -ForegroundColor Gray
