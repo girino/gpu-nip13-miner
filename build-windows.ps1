@@ -15,6 +15,62 @@ if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
 $goVersion = go version
 Write-Host "Found: $goVersion" -ForegroundColor Green
 
+# Function to download OpenCL headers automatically
+function Download-OpenCLHeaders {
+    $openclDir = "C:\OpenCL\include\CL"
+    $openclIncludeDir = "C:\OpenCL\include"
+    
+    if (Test-Path $openclDir) {
+        Write-Host "OpenCL headers directory already exists: $openclDir" -ForegroundColor Green
+        return $openclIncludeDir
+    }
+    
+    Write-Host "`nDownloading OpenCL headers from Khronos Group..." -ForegroundColor Cyan
+    
+    # Create directory
+    New-Item -ItemType Directory -Path $openclDir -Force | Out-Null
+    
+    # List of OpenCL header files to download
+    $headers = @(
+        "cl.h",
+        "cl_platform.h",
+        "cl_ext.h",
+        "cl_egl.h",
+        "cl_gl.h",
+        "cl_gl_ext.h",
+        "cl_d3d10.h",
+        "cl_d3d11.h",
+        "cl_dx9_media_sharing.h",
+        "cl_dx9_media_sharing_intel.h",
+        "cl_va_api_media_sharing_intel.h",
+        "cl_version.h",
+        "opencl.h"
+    )
+    
+    $baseUrl = "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/main/opencl22/"
+    
+    $downloaded = 0
+    foreach ($header in $headers) {
+        try {
+            $url = "$baseUrl$header"
+            $outputPath = Join-Path $openclDir $header
+            Write-Host "  Downloading $header..." -ForegroundColor Gray
+            Invoke-WebRequest -Uri $url -OutFile $outputPath -UseBasicParsing -ErrorAction Stop
+            $downloaded++
+        } catch {
+            Write-Host "  Warning: Failed to download $header" -ForegroundColor Yellow
+        }
+    }
+    
+    if ($downloaded -gt 0) {
+        Write-Host "Downloaded $downloaded OpenCL header files to $openclDir" -ForegroundColor Green
+        return "C:\OpenCL\include"
+    } else {
+        Write-Host "Failed to download OpenCL headers" -ForegroundColor Red
+        return $null
+    }
+}
+
 # Check for OpenCL headers
 $openclHeaderPath = $null
 $possibleHeaderPaths = @(
@@ -67,15 +123,26 @@ if (-not $openclHeaderPath) {
     }
     
     if (-not $openclHeaderPath) {
-        Write-Host "`nOpenCL headers not found. Options:" -ForegroundColor Yellow
-        Write-Host "1. Install Intel OpenCL SDK: https://www.intel.com/content/www/us/en/developer/tools/opencl-sdk/overview.html" -ForegroundColor White
-        Write-Host "2. Install Windows SDK (includes OpenCL headers):" -ForegroundColor White
-        Write-Host "   - Download from: https://developer.microsoft.com/en-us/windows/downloads/windows-sdk/" -ForegroundColor Gray
-        Write-Host "   - Or via Visual Studio Installer: Modify -> Individual components -> Windows SDK" -ForegroundColor Gray
-        Write-Host "3. Download OpenCL headers manually and place in C:\OpenCL\include\CL" -ForegroundColor White
-        Write-Host "`nTo check if Windows SDK is installed, run:" -ForegroundColor Cyan
-        Write-Host "  Get-ChildItem 'C:\Program Files\Windows Kits\*\Include\*\um\CL' -ErrorAction SilentlyContinue" -ForegroundColor Gray
-        exit 1
+        Write-Host "`nOpenCL headers not found." -ForegroundColor Yellow
+        Write-Host "Attempting to download OpenCL headers automatically..." -ForegroundColor Cyan
+        
+        $downloadedPath = Download-OpenCLHeaders
+        if ($downloadedPath -and (Test-Path "$downloadedPath\CL")) {
+            $openclHeaderPath = $downloadedPath
+            Write-Host "Successfully set up OpenCL headers in: $openclHeaderPath" -ForegroundColor Green
+        } else {
+            Write-Host "`nAutomatic download failed. Manual options:" -ForegroundColor Yellow
+            Write-Host "1. Install Intel OpenCL SDK: https://www.intel.com/content/www/us/en/developer/tools/opencl-sdk/overview.html" -ForegroundColor White
+            Write-Host "2. Install Windows SDK (includes OpenCL headers):" -ForegroundColor White
+            Write-Host "   - Download from: https://developer.microsoft.com/en-us/windows/downloads/windows-sdk/" -ForegroundColor Gray
+            Write-Host "   - Or via Visual Studio Installer: Modify -> Individual components -> Windows SDK" -ForegroundColor Gray
+            Write-Host "3. Download OpenCL headers manually from:" -ForegroundColor White
+            Write-Host "   https://github.com/KhronosGroup/OpenCL-Headers" -ForegroundColor Gray
+            Write-Host "   Extract to: C:\OpenCL\include\CL" -ForegroundColor Gray
+            Write-Host "`nTo check if Windows SDK is installed, run:" -ForegroundColor Cyan
+            Write-Host "  Get-ChildItem 'C:\Program Files\Windows Kits\*\Include\*\um\CL' -ErrorAction SilentlyContinue" -ForegroundColor Gray
+            exit 1
+        }
     }
 }
 
