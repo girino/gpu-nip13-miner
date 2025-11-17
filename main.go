@@ -359,7 +359,7 @@ func runBenchmark(difficulty int, deviceIndex int, kernelType string) {
 
 	deviceName := selectedDevice.Name()
 	fmt.Fprintf(os.Stderr, "Testing on device: %s\n", deviceName)
-	vlog("Using kernel: %s", kernelType)
+	fmt.Fprintf(os.Stderr, "Using kernel: %s\n", kernelType)
 	fmt.Fprintf(os.Stderr, "\n")
 
 	// Test batch sizes from 3 to 10 (1000 to 10000000000)
