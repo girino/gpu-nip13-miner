@@ -438,13 +438,12 @@ if ($openclHeaderPath) {
         exit 1
     }
     
-    # Convert Windows path to MinGW format (C:\path -> /c/path)
-    # MinGW GCC prefers Unix-style paths
-    $drive = $openclHeaderPath.Substring(0, 1).ToLower()
-    $path = $openclHeaderPath.Substring(3) -replace '\\', '/'
-    $mingwPath = "/$drive/$path"
-    Write-Host "Using MinGW path format: $mingwPath" -ForegroundColor Gray
-    $cgoCflags += " -I$mingwPath"
+    # MinGW GCC can handle both Unix-style (/c/path) and Windows paths (C:\path)
+    # Try Windows path directly first as it's more reliable with CGO
+    $windowsPath = $openclHeaderPath.TrimEnd('\')
+    Write-Host "Using Windows path format: $windowsPath" -ForegroundColor Gray
+    # Use Windows path directly - MinGW GCC handles it
+    $cgoCflags += " -I`"$windowsPath`""
 }
 $env:CGO_CFLAGS = $cgoCflags
 
