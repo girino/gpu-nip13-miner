@@ -87,12 +87,6 @@ The script will:
 - Set up the build environment for MinGW64 GCC
 - Create necessary import libraries
 
-### Cross-compilation from Linux
-
-```bash
-./build-windows.sh
-```
-
 ## Usage
 
 ### Basic Usage
