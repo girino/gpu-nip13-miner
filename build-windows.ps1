@@ -438,12 +438,15 @@ if ($openclHeaderPath) {
         exit 1
     }
     
-    # MinGW GCC can handle both Unix-style (/c/path) and Windows paths (C:\path)
-    # Try Windows path directly first as it's more reliable with CGO
-    $windowsPath = $openclHeaderPath.TrimEnd('\')
-    Write-Host "Using Windows path format: $windowsPath" -ForegroundColor Gray
-    # Use Windows path directly - MinGW GCC handles it
-    $cgoCflags += " -I`"$windowsPath`""
+    # MinGW GCC needs Unix-style paths (/c/path) for include directories
+    # Convert Windows path to MinGW format
+    $drive = $openclHeaderPath.Substring(0, 1).ToLower()
+    $path = $openclHeaderPath.Substring(3) -replace '\\', '/'
+    $mingwPath = "/$drive/$path"
+    $mingwPath = $mingwPath.TrimEnd('/')
+    Write-Host "Using MinGW path format: $mingwPath" -ForegroundColor Gray
+    # Don't use quotes - MinGW paths don't need them and CGO may mishandle them
+    $cgoCflags += " -I$mingwPath"
 }
 $env:CGO_CFLAGS = $cgoCflags
 
@@ -462,6 +465,29 @@ $env:CGO_LDFLAGS = $cgoLdflags
 Write-Host "CC: $env:CC" -ForegroundColor Gray
 Write-Host "CGO_CFLAGS: $env:CGO_CFLAGS" -ForegroundColor Gray
 Write-Host "CGO_LDFLAGS: $env:CGO_LDFLAGS" -ForegroundColor Gray
+
+# Test if compiler can find the header
+if ($openclHeaderPath) {
+    Write-Host "`nTesting if compiler can find OpenCL headers..." -ForegroundColor Cyan
+    $testFile = Join-Path $env:TEMP "test_opencl.c"
+    $testContent = @"
+#include <CL/cl.h>
+int main() { return 0; }
+"@
+    $testContent | Out-File -FilePath $testFile -Encoding ASCII
+    $testOutput = & $env:CC $env:CGO_CFLAGS -c $testFile -o "$env:TEMP\test_opencl.o" 2>&1
+    $testExitCode = $LASTEXITCODE
+    Remove-Item -Path $testFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$env:TEMP\test_opencl.o" -Force -ErrorAction SilentlyContinue
+    
+    if ($testExitCode -eq 0) {
+        Write-Host "  Header test passed - compiler can find OpenCL headers" -ForegroundColor Green
+    } else {
+        Write-Host "  Header test failed - compiler cannot find OpenCL headers" -ForegroundColor Red
+        Write-Host "  Compiler output: $testOutput" -ForegroundColor Yellow
+        Write-Host "  This may indicate a path issue. Trying alternative path format..." -ForegroundColor Yellow
+    }
+}
 
 # Build
 Write-Host "`nCompiling..." -ForegroundColor Cyan
