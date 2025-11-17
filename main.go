@@ -1036,7 +1036,7 @@ func main() {
 	deviceIndexShort := flag.Int("d", -1, "Select device by index from list (short)")
 	benchmark := flag.Bool("benchmark", false, "Benchmark different batch sizes to find optimal value")
 	testKernels := flag.Bool("test-kernels", false, "Test all kernels with random events to verify correctness")
-	kernelType := flag.String("kernel", "auto", "Kernel implementation to use: 'auto' (select based on device), 'default' (our implementation), 'ckolivas' (sgminer), 'phatk', 'diakgcn', 'diablo', or 'poclbm' (bfgminer)")
+	kernelType := flag.String("kernel", "auto", "Kernel implementation to use: 'auto' (select based on device), 'default' (our implementation), or 'ckolivas' (sgminer)")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
 	flag.Parse()
 
