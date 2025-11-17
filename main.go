@@ -325,33 +325,39 @@ func runBenchmark(difficulty int, deviceIndex int) {
 	}
 
 	var results []benchmarkResult
-	maxWorkGroupSize := selectedDevice.MaxWorkGroupSize()
 
 	for power := 3; power <= 6; power++ {
 		batchSize := int(math.Pow(10, float64(power)))
-
-		// Skip if batch size exceeds work group limits
-		if batchSize > maxWorkGroupSize*100 {
-			fmt.Fprintf(os.Stderr, "Skipping batch size 10^%d (%d) - exceeds work group limit\n", power, batchSize)
-			continue
-		}
 
 		fmt.Fprintf(os.Stderr, "Testing batch size 10^%d (%d)... ", power, batchSize)
 
 		// Run benchmark 3 times with different events for more reliable results
 		var rates []float64
+		failed := false
 		for run := 0; run < 3; run++ {
 			// Create a new realistic event for each run
 			// This makes the benchmark more representative of real mining scenarios
 			testEvent := createRealisticBenchmarkEvent()
 
 			// Run benchmark for this batch size (5 seconds per run)
-			rate := benchmarkBatchSize(selectedDevice, &testEvent, difficulty, batchSize)
+			// Catch OpenCL errors (e.g., batch size too large)
+			rate, err := benchmarkBatchSizeSafe(selectedDevice, &testEvent, difficulty, batchSize)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "\nError testing batch size 10^%d (%d): %v\n", power, batchSize, err)
+				fmt.Fprintf(os.Stderr, "Batch size too large for this device. Stopping benchmark.\n")
+				failed = true
+				break
+			}
 			rates = append(rates, rate)
 
 			if run < 2 {
 				fmt.Fprintf(os.Stderr, "%.2fM ", rate/1000000)
 			}
+		}
+
+		if failed {
+			// Stop testing larger batch sizes if we hit an error
+			break
 		}
 
 		// Calculate average rate
@@ -398,40 +404,40 @@ func runBenchmark(difficulty int, deviceIndex int) {
 	fmt.Fprintf(os.Stderr, "Use: -batch-size %d\n", best.batchSizePower)
 }
 
-// benchmarkBatchSize runs a benchmark for a specific batch size
-// Returns the nonce rate in nonces per second
-func benchmarkBatchSize(device *cl.Device, event *nostr.Event, difficulty int, batchSize int) float64 {
+// benchmarkBatchSizeSafe runs a benchmark for a specific batch size
+// Returns the nonce rate in nonces per second and any error encountered
+func benchmarkBatchSizeSafe(device *cl.Device, event *nostr.Event, difficulty int, batchSize int) (float64, error) {
 	// Create context
 	context, err := cl.CreateContext([]*cl.Device{device})
 	if err != nil {
-		log.Fatalf("Failed to create context: %v", err)
+		return 0, fmt.Errorf("failed to create context: %v", err)
 	}
 	defer context.Release()
 
 	// Create command queue
 	queue, err := context.CreateCommandQueue(device, 0)
 	if err != nil {
-		log.Fatalf("Failed to create command queue: %v", err)
+		return 0, fmt.Errorf("failed to create command queue: %v", err)
 	}
 	defer queue.Release()
 
 	// Create program
 	program, err := context.CreateProgramWithSource([]string{mineKernelSource})
 	if err != nil {
-		log.Fatalf("Failed to create program: %v", err)
+		return 0, fmt.Errorf("failed to create program: %v", err)
 	}
 	defer program.Release()
 
 	// Build program
 	err = program.BuildProgram(nil, "")
 	if err != nil {
-		log.Fatalf("Failed to build program: %v", err)
+		return 0, fmt.Errorf("failed to build program: %v", err)
 	}
 
 	// Create kernel
 	kernel, err := program.CreateKernel("mine_nonce")
 	if err != nil {
-		log.Fatalf("Failed to create kernel: %v", err)
+		return 0, fmt.Errorf("failed to create kernel: %v", err)
 	}
 	defer kernel.Release()
 
@@ -448,20 +454,20 @@ func benchmarkBatchSize(device *cl.Device, event *nostr.Event, difficulty int, b
 	noncePlaceholderBytes := []byte(noncePlaceholder)
 	nonceOffset := bytes.Index(serialized, noncePlaceholderBytes)
 	if nonceOffset == -1 {
-		log.Fatal("Could not find nonce placeholder in serialized event")
+		return 0, fmt.Errorf("could not find nonce placeholder in serialized event")
 	}
 
 	// Create input buffer
 	inputBuffer, err := context.CreateEmptyBuffer(cl.MemReadOnly, serializedLength)
 	if err != nil {
-		log.Fatalf("Failed to create input buffer: %v", err)
+		return 0, fmt.Errorf("failed to create input buffer: %v", err)
 	}
 	defer inputBuffer.Release()
 
 	// Write serialized event to buffer
 	_, err = queue.EnqueueWriteBuffer(inputBuffer, true, 0, serializedLength, unsafe.Pointer(&serialized[0]), nil)
 	if err != nil {
-		log.Fatalf("Failed to write input buffer: %v", err)
+		return 0, fmt.Errorf("failed to write input buffer: %v", err)
 	}
 
 	// Create results buffer
@@ -475,39 +481,39 @@ func benchmarkBatchSize(device *cl.Device, event *nostr.Event, difficulty int, b
 
 	resultsBuffer, err := context.CreateEmptyBuffer(cl.MemWriteOnly, resultsBufferSize)
 	if err != nil {
-		log.Fatalf("Failed to create results buffer: %v", err)
+		return 0, fmt.Errorf("failed to create results buffer: %v", err)
 	}
 	defer resultsBuffer.Release()
 
 	// Set kernel arguments (will be reused)
 	err = kernel.SetArgBuffer(0, inputBuffer)
 	if err != nil {
-		log.Fatalf("Failed to set kernel arg 0: %v", err)
+		return 0, fmt.Errorf("failed to set kernel arg 0: %v", err)
 	}
 
 	err = kernel.SetArgInt32(1, int32(serializedLength))
 	if err != nil {
-		log.Fatalf("Failed to set kernel arg 1: %v", err)
+		return 0, fmt.Errorf("failed to set kernel arg 1: %v", err)
 	}
 
 	err = kernel.SetArgInt32(2, int32(nonceOffset))
 	if err != nil {
-		log.Fatalf("Failed to set kernel arg 2: %v", err)
+		return 0, fmt.Errorf("failed to set kernel arg 2: %v", err)
 	}
 
 	err = kernel.SetArgInt32(3, int32(difficulty))
 	if err != nil {
-		log.Fatalf("Failed to set kernel arg 3: %v", err)
+		return 0, fmt.Errorf("failed to set kernel arg 3: %v", err)
 	}
 
 	err = kernel.SetArgBuffer(6, resultsBuffer)
 	if err != nil {
-		log.Fatalf("Failed to set kernel arg 6: %v", err)
+		return 0, fmt.Errorf("failed to set kernel arg 6: %v", err)
 	}
 
 	err = kernel.SetArgInt32(7, int32(10)) // 10 digits
 	if err != nil {
-		log.Fatalf("Failed to set kernel arg 7: %v", err)
+		return 0, fmt.Errorf("failed to set kernel arg 7: %v", err)
 	}
 
 	// Benchmark for at least 5 seconds
@@ -524,12 +530,12 @@ func benchmarkBatchSize(device *cl.Device, event *nostr.Event, difficulty int, b
 		baseNonceHigh := uint32((currentNonce >> 32) & 0xFFFFFFFF)
 		err = kernel.SetArgInt32(4, int32(baseNonceLow))
 		if err != nil {
-			log.Fatalf("Failed to set kernel arg 4: %v", err)
+			return 0, fmt.Errorf("failed to set kernel arg 4: %v", err)
 		}
 
 		err = kernel.SetArgInt32(5, int32(baseNonceHigh))
 		if err != nil {
-			log.Fatalf("Failed to set kernel arg 5: %v", err)
+			return 0, fmt.Errorf("failed to set kernel arg 5: %v", err)
 		}
 
 		// Execute kernel
@@ -537,7 +543,7 @@ func benchmarkBatchSize(device *cl.Device, event *nostr.Event, difficulty int, b
 		globalSize := []int{remaining}
 		_, err = queue.EnqueueNDRangeKernel(kernel, nil, globalSize, nil, nil)
 		if err != nil {
-			log.Fatalf("Failed to enqueue kernel: %v", err)
+			return 0, fmt.Errorf("failed to enqueue kernel: %v", err)
 		}
 
 		// Read results
@@ -548,7 +554,7 @@ func benchmarkBatchSize(device *cl.Device, event *nostr.Event, difficulty int, b
 		}
 		_, err = queue.EnqueueReadBuffer(resultsBuffer, true, 0, readSize, unsafe.Pointer(&results[0]), nil)
 		if err != nil {
-			log.Fatalf("Failed to read results buffer: %v", err)
+			return 0, fmt.Errorf("failed to read results buffer: %v", err)
 		}
 
 		totalTested += int64(remaining)
@@ -562,7 +568,7 @@ func benchmarkBatchSize(device *cl.Device, event *nostr.Event, difficulty int, b
 
 	elapsed := time.Since(startTime)
 	rate := float64(totalTested) / elapsed.Seconds()
-	return rate
+	return rate, nil
 }
 
 func main() {
