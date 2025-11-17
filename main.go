@@ -357,10 +357,10 @@ func createRealisticBenchmarkEvent() nostr.Event {
 	return event
 }
 
-// runBenchmark tests different batch sizes to find the optimal one
+// runBenchmark tests all kernels and different batch sizes to find the optimal combination
 func runBenchmark(difficulty int, deviceIndex int, kernelType string) {
-	fmt.Fprintf(os.Stderr, "Running benchmark to find optimal batch size...\n")
-	fmt.Fprintf(os.Stderr, "Each batch size will be tested 3 times (5 seconds each) with different events.\n\n")
+	fmt.Fprintf(os.Stderr, "Running benchmark to find optimal kernel and batch size...\n")
+	fmt.Fprintf(os.Stderr, "Each kernel and batch size will be tested 3 times (5 seconds each) with different events.\n\n")
 
 	// Get platforms
 	platforms, err := cl.GetPlatforms()
@@ -374,15 +374,13 @@ func runBenchmark(difficulty int, deviceIndex int, kernelType string) {
 
 	// Collect all devices
 	var allDevices []*cl.Device
-	var devicePlatforms []int
-	for platformIdx, platform := range platforms {
+	for _, platform := range platforms {
 		devices, err := platform.GetDevices(cl.DeviceTypeAll)
 		if err != nil {
 			continue
 		}
 		for _, device := range devices {
 			allDevices = append(allDevices, device)
-			devicePlatforms = append(devicePlatforms, platformIdx)
 		}
 	}
 
@@ -413,100 +411,144 @@ func runBenchmark(difficulty int, deviceIndex int, kernelType string) {
 	}
 
 	deviceName := selectedDevice.Name()
+	deviceType := selectedDevice.Type()
+	isCPU := (deviceType & cl.DeviceTypeCPU) != 0
+
 	fmt.Fprintf(os.Stderr, "Testing on device: %s\n", deviceName)
-	// Show actual kernel selected (in case auto was used)
-	actualKernel := kernelType
-	if kernelType == "auto" {
-		actualKernel = selectKernelForDevice(selectedDevice)
+	if isCPU {
+		fmt.Fprintf(os.Stderr, "Note: Batch size limited to 10^4 for CPU to avoid segfaults.\n")
 	}
-	fmt.Fprintf(os.Stderr, "Using kernel: %s\n", actualKernel)
 	fmt.Fprintf(os.Stderr, "\n")
 
-	// Test batch sizes from 3 to 10 (1000 to 10000000000)
-	type benchmarkResult struct {
-		batchSizePower int
-		batchSize      int
-		rate           float64
+	// Test all kernels
+	kernels := []string{"default", "ckolivas", "phatk", "diakgcn", "diablo", "poclbm"}
+
+	type kernelBenchmarkResult struct {
+		kernelName     string
+		bestBatchPower int
+		bestBatchSize  int
+		bestRate       float64
 	}
 
-	var results []benchmarkResult
+	var kernelResults []kernelBenchmarkResult
 
-	for power := 3; power <= 10; power++ {
-		batchSize := int(math.Pow(10, float64(power)))
+	// Determine max batch size power based on device type
+	maxPower := 10
+	if isCPU {
+		maxPower = 4 // Limit to 10^4 for CPU
+	}
 
-		fmt.Fprintf(os.Stderr, "Testing batch size 10^%d (%d)... ", power, batchSize)
+	for _, kernel := range kernels {
+		fmt.Fprintf(os.Stderr, "=== Testing kernel: %s ===\n", kernel)
 
-		// Run benchmark 3 times with different events for more reliable results
-		var rates []float64
-		failed := false
-		for run := 0; run < 3; run++ {
-			// Create a new realistic event for each run
-			// This makes the benchmark more representative of real mining scenarios
-			testEvent := createRealisticBenchmarkEvent()
+		type benchmarkResult struct {
+			batchSizePower int
+			batchSize      int
+			rate           float64
+		}
 
-			// Run benchmark for this batch size (5 seconds per run)
-			// Catch OpenCL errors (e.g., batch size too large)
-			rate, err := benchmarkBatchSizeSafe(selectedDevice, &testEvent, difficulty, batchSize, kernelType)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "\nError testing batch size 10^%d (%d): %v\n", power, batchSize, err)
-				fmt.Fprintf(os.Stderr, "Batch size too large for this device. Stopping benchmark.\n")
-				failed = true
+		var results []benchmarkResult
+
+		// Test batch sizes from 3 to maxPower
+		for power := 3; power <= maxPower; power++ {
+			batchSize := int(math.Pow(10, float64(power)))
+
+			fmt.Fprintf(os.Stderr, "  Testing batch size 10^%d (%d)... ", power, batchSize)
+
+			// Run benchmark 3 times with different events for more reliable results
+			var rates []float64
+			failed := false
+			for run := 0; run < 3; run++ {
+				// Create a new realistic event for each run
+				testEvent := createRealisticBenchmarkEvent()
+
+				// Run benchmark for this batch size (5 seconds per run)
+				rate, err := benchmarkBatchSizeSafe(selectedDevice, &testEvent, difficulty, batchSize, kernel)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "\n  Error testing batch size 10^%d (%d): %v\n", power, batchSize, err)
+					fmt.Fprintf(os.Stderr, "  Batch size too large for this device/kernel. Stopping.\n")
+					failed = true
+					break
+				}
+				rates = append(rates, rate)
+
+				if run < 2 {
+					fmt.Fprintf(os.Stderr, "%.2fM ", rate/1000000)
+				}
+			}
+
+			if failed {
+				// Stop testing larger batch sizes if we hit an error
 				break
 			}
-			rates = append(rates, rate)
 
-			if run < 2 {
-				fmt.Fprintf(os.Stderr, "%.2fM ", rate/1000000)
+			// Calculate average rate
+			avgRate := 0.0
+			for _, r := range rates {
+				avgRate += r
+			}
+			avgRate /= float64(len(rates))
+
+			results = append(results, benchmarkResult{
+				batchSizePower: power,
+				batchSize:      batchSize,
+				rate:           avgRate,
+			})
+
+			fmt.Fprintf(os.Stderr, "%.2fM nonces/s (avg of 3 runs)\n", avgRate/1000000)
+		}
+
+		// Find best batch size for this kernel
+		if len(results) == 0 {
+			fmt.Fprintf(os.Stderr, "  No valid batch sizes for kernel %s\n\n", kernel)
+			continue
+		}
+
+		best := results[0]
+		for _, r := range results {
+			if r.rate > best.rate {
+				best = r
 			}
 		}
 
-		if failed {
-			// Stop testing larger batch sizes if we hit an error
-			break
-		}
-
-		// Calculate average rate
-		avgRate := 0.0
-		for _, r := range rates {
-			avgRate += r
-		}
-		avgRate /= float64(len(rates))
-
-		results = append(results, benchmarkResult{
-			batchSizePower: power,
-			batchSize:      batchSize,
-			rate:           avgRate,
+		kernelResults = append(kernelResults, kernelBenchmarkResult{
+			kernelName:     kernel,
+			bestBatchPower: best.batchSizePower,
+			bestBatchSize:  best.batchSize,
+			bestRate:       best.rate,
 		})
 
-		fmt.Fprintf(os.Stderr, "%.2fM nonces/s (avg of 3 runs)\n", avgRate/1000000)
+		fmt.Fprintf(os.Stderr, "  Best for %s: batch size 10^%d (%d) = %.2fM nonces/s\n\n", kernel, best.batchSizePower, best.batchSize, best.rate/1000000)
 	}
 
-	// Find best batch size
-	if len(results) == 0 {
-		log.Fatal("No valid batch sizes to test")
+	// Print summary table
+	if len(kernelResults) == 0 {
+		log.Fatal("No valid kernel results found")
 	}
 
-	best := results[0]
-	for _, r := range results {
-		if r.rate > best.rate {
-			best = r
+	fmt.Fprintf(os.Stderr, "=== Benchmark Summary ===\n")
+	fmt.Fprintf(os.Stderr, "%-12s %12s %20s\n", "Kernel", "Best Batch Size", "Performance")
+	fmt.Fprintf(os.Stderr, "%-12s %12s %20s\n", "------", "-------------", "-----------")
+	for _, kr := range kernelResults {
+		fmt.Fprintf(os.Stderr, "%-12s 10^%-8d %-8.2fM nonces/s\n",
+			kr.kernelName, kr.bestBatchPower, kr.bestRate/1000000)
+	}
+	fmt.Fprintf(os.Stderr, "\n")
+
+	// Find overall best kernel
+	bestKernel := kernelResults[0]
+	for _, kr := range kernelResults {
+		if kr.bestRate > bestKernel.bestRate {
+			bestKernel = kr
 		}
 	}
 
+	fmt.Fprintf(os.Stderr, "=== Recommendation ===\n")
+	fmt.Fprintf(os.Stderr, "Best kernel: %s\n", bestKernel.kernelName)
+	fmt.Fprintf(os.Stderr, "Best batch size: 10^%d (%d)\n", bestKernel.bestBatchPower, bestKernel.bestBatchSize)
+	fmt.Fprintf(os.Stderr, "Performance: %.2fM nonces/s\n", bestKernel.bestRate/1000000)
 	fmt.Fprintf(os.Stderr, "\n")
-	fmt.Fprintf(os.Stderr, "=== Benchmark Results ===\n")
-	for _, r := range results {
-		marker := " "
-		if r.batchSizePower == best.batchSizePower {
-			marker = "*"
-		}
-		fmt.Fprintf(os.Stderr, "%s Batch size 10^%d (%d): %.2fM nonces/s\n",
-			marker, r.batchSizePower, r.batchSize, r.rate/1000000)
-	}
-	fmt.Fprintf(os.Stderr, "\n")
-	fmt.Fprintf(os.Stderr, "Recommended batch size: 10^%d (%d) with %.2fM nonces/s\n",
-		best.batchSizePower, best.batchSize, best.rate/1000000)
-	fmt.Fprintf(os.Stderr, "Use: -batch-size %d\n", best.batchSizePower)
+	fmt.Fprintf(os.Stderr, "Use: -kernel %s -batch-size %d\n", bestKernel.kernelName, bestKernel.bestBatchPower)
 }
 
 // testSingleKernel tests a single kernel by mining a random event and validating the result
