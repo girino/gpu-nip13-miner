@@ -42,11 +42,11 @@ function Download-OpenCLHeaders {
         "opencl.h"
     )
     
-    # Try different URL patterns
+    # Try different URL patterns - headers are directly in CL/ directory
     $baseUrls = @(
-        "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/main/opencl22/",
-        "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/v2023.12.14/opencl22/",
-        "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/v2023.04.17/opencl22/"
+        "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/main/CL/",
+        "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/v2023.12.14/CL/",
+        "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/v2023.04.17/CL/"
     )
     
     $downloaded = 0
@@ -161,8 +161,9 @@ if (-not $openclHeaderPath) {
             Write-Host "`nQUICK FIX - Download OpenCL headers manually:" -ForegroundColor Cyan
             Write-Host "1. Download ZIP from: https://github.com/KhronosGroup/OpenCL-Headers/archive/refs/heads/main.zip" -ForegroundColor White
             Write-Host "2. Extract the ZIP file" -ForegroundColor White
-            Write-Host "3. Copy the 'opencl22' folder contents to: C:\OpenCL\include\CL" -ForegroundColor White
+            Write-Host "3. Copy the 'CL' folder contents to: C:\OpenCL\include\CL" -ForegroundColor White
             Write-Host "   (The folder structure should be: C:\OpenCL\include\CL\cl.h)" -ForegroundColor Gray
+            Write-Host "   Note: Headers are directly in the CL/ directory, not in opencl22/CL/" -ForegroundColor Gray
             Write-Host "`nALTERNATIVE OPTIONS:" -ForegroundColor Cyan
             Write-Host "1. Install Intel OpenCL SDK: https://www.intel.com/content/www/us/en/developer/tools/opencl-sdk/overview.html" -ForegroundColor White
             Write-Host "2. Install Windows SDK (includes OpenCL headers):" -ForegroundColor White
