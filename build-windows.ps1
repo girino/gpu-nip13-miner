@@ -51,12 +51,19 @@ function Download-OpenCLHeaders {
     try {
         # Clone the repository (shallow clone)
         Write-Host "  Cloning OpenCL-Headers repository..." -ForegroundColor Gray
-        $cloneOutput = & git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers.git $tempDir 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  Error: Failed to clone repository" -ForegroundColor Red
-            Write-Host "  Output: $cloneOutput" -ForegroundColor Gray
+        $cloneOutput = & git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers.git $tempDir 2>&1 | Out-String
+        $exitCode = $LASTEXITCODE
+        
+        # Check if clone was successful by verifying the directory was created
+        if ($exitCode -ne 0 -or -not (Test-Path $tempDir)) {
+            Write-Host "  Error: Failed to clone repository (exit code: $exitCode)" -ForegroundColor Red
+            if ($cloneOutput) {
+                Write-Host "  Git output: $cloneOutput" -ForegroundColor Gray
+            }
             return $null
         }
+        
+        Write-Host "  Repository cloned successfully" -ForegroundColor Green
         
         # Create target directory
         New-Item -ItemType Directory -Path $openclDir -Force | Out-Null
@@ -67,18 +74,33 @@ function Download-OpenCLHeaders {
             Write-Host "  Copying headers from repository..." -ForegroundColor Gray
             Copy-Item -Path "$sourceCL\*" -Destination $openclDir -Recurse -Force
             $headerCount = (Get-ChildItem -Path $openclDir -File).Count
-            Write-Host "  Copied $headerCount header files to $openclDir" -ForegroundColor Green
-            return $openclIncludeDir
+            if ($headerCount -gt 0) {
+                Write-Host "  Copied $headerCount header files to $openclDir" -ForegroundColor Green
+                return $openclIncludeDir
+            } else {
+                Write-Host "  Error: No header files were copied" -ForegroundColor Red
+                return $null
+            }
         } else {
             Write-Host "  Error: CL directory not found in repository" -ForegroundColor Red
+            Write-Host "  Repository contents:" -ForegroundColor Gray
+            if (Test-Path $tempDir) {
+                Get-ChildItem $tempDir | Select-Object -First 10 | ForEach-Object {
+                    Write-Host "    $($_.Name)" -ForegroundColor Gray
+                }
+            }
             return $null
         }
     } catch {
-        Write-Host "  Error: Failed to download headers - $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "  Error: Exception during download - $($_.Exception.Message)" -ForegroundColor Red
+        if ($_.Exception.InnerException) {
+            Write-Host "  Inner exception: $($_.Exception.InnerException.Message)" -ForegroundColor Gray
+        }
         return $null
     } finally {
         # Clean up temporary directory
         if (Test-Path $tempDir) {
+            Write-Host "  Cleaning up temporary directory..." -ForegroundColor Gray
             Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
