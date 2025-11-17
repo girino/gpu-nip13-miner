@@ -80,8 +80,20 @@ func getKernelSource(kernelType string, device *cl.Device) (string, string, erro
 		// Note: ckolivas kernel is experimental and may not work correctly
 		// It's based on sgminer's Scrypt implementation, adapted for NIP-13
 		return ckolivasKernelSource, "mine_nonce", nil
+	case "phatk":
+		// bfgminer phatk kernel adapted for NIP-13 mining
+		return bfgminerPhatkKernelSource, "mine_nonce", nil
+	case "diakgcn":
+		// bfgminer diakgcn kernel adapted for NIP-13 mining
+		return bfgminerDiakgcnKernelSource, "mine_nonce", nil
+	case "diablo":
+		// bfgminer diablo kernel adapted for NIP-13 mining
+		return bfgminerDiabloKernelSource, "mine_nonce", nil
+	case "poclbm":
+		// bfgminer poclbm kernel adapted for NIP-13 mining
+		return bfgminerPoclbmKernelSource, "mine_nonce", nil
 	default:
-		return "", "", fmt.Errorf("unknown kernel type: %s (use 'default', 'ckolivas', or 'auto')", kernelType)
+		return "", "", fmt.Errorf("unknown kernel type: %s (use 'default', 'ckolivas', 'phatk', 'diakgcn', 'diablo', 'poclbm', or 'auto')", kernelType)
 	}
 }
 
@@ -685,7 +697,7 @@ func main() {
 	deviceIndex := flag.Int("device", -1, "Select device by index from list (use -list-devices to see available devices)")
 	deviceIndexShort := flag.Int("d", -1, "Select device by index from list (short)")
 	benchmark := flag.Bool("benchmark", false, "Benchmark different batch sizes to find optimal value")
-	kernelType := flag.String("kernel", "auto", "Kernel implementation to use: 'auto' (select based on device), 'default' (our implementation), or 'ckolivas' (experimental, based on sgminer)")
+	kernelType := flag.String("kernel", "auto", "Kernel implementation to use: 'auto' (select based on device), 'default' (our implementation), 'ckolivas' (sgminer), 'phatk', 'diakgcn', 'diablo', or 'poclbm' (bfgminer)")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
 	flag.Parse()
 
