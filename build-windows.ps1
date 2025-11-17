@@ -25,75 +25,54 @@ function Download-OpenCLHeaders {
         return $openclIncludeDir
     }
     
-    Write-Host "`nDownloading OpenCL headers from Khronos Group..." -ForegroundColor Cyan
+    Write-Host "`nDownloading OpenCL headers from Khronos Group using git..." -ForegroundColor Cyan
     
-    # Enable TLS 1.2 for older PowerShell versions
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    
-    # Create directory
-    New-Item -ItemType Directory -Path $openclDir -Force | Out-Null
-    
-    # List of OpenCL header files to download (minimal set needed for compilation)
-    $headers = @(
-        "cl.h",
-        "cl_platform.h",
-        "cl_ext.h",
-        "cl_version.h",
-        "opencl.h"
-    )
-    
-    # Try different URL patterns - headers are directly in CL/ directory
-    $baseUrls = @(
-        "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/main/CL/",
-        "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/v2023.12.14/CL/",
-        "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/v2023.04.17/CL/"
-    )
-    
-    $downloaded = 0
-    $baseUrl = $null
-    
-    # Try to find a working base URL
-    foreach ($url in $baseUrls) {
-        Write-Host "  Trying URL: $url" -ForegroundColor Gray
-        try {
-            $testUrl = "$url" + "cl.h"
-            $testResponse = Invoke-WebRequest -Uri $testUrl -Method Head -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-            if ($testResponse.StatusCode -eq 200) {
-                $baseUrl = $url
-                Write-Host "  Found working URL" -ForegroundColor Green
-                break
-            }
-        } catch {
-            continue
-        }
-    }
-    
-    if (-not $baseUrl) {
-        Write-Host "  Could not find working download URL" -ForegroundColor Yellow
-        Write-Host "  This might be due to network/firewall restrictions" -ForegroundColor Yellow
+    # Check if git is available
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Write-Host "  Error: git is not installed or not in PATH" -ForegroundColor Red
+        Write-Host "  Please install git from: https://git-scm.com/download/win" -ForegroundColor Yellow
         return $null
     }
     
-    # Download headers
-    foreach ($header in $headers) {
-        try {
-            $url = "$baseUrl$header"
-            $outputPath = Join-Path $openclDir $header
-            Write-Host "  Downloading $header..." -ForegroundColor Gray
-            Invoke-WebRequest -Uri $url -OutFile $outputPath -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
-            $downloaded++
-        } catch {
-            $errorMsg = $_.Exception.Message
-            Write-Host "  Warning: Failed to download $header - $errorMsg" -ForegroundColor Yellow
-        }
+    # Create temporary directory for cloning
+    $tempDir = Join-Path $env:TEMP "opencl-headers-temp"
+    if (Test-Path $tempDir) {
+        Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
     
-    if ($downloaded -gt 0) {
-        Write-Host "Downloaded $downloaded OpenCL header files to $openclDir" -ForegroundColor Green
-        return $openclIncludeDir
-    } else {
-        Write-Host "Failed to download OpenCL headers" -ForegroundColor Red
+    try {
+        # Clone the repository (shallow clone)
+        Write-Host "  Cloning OpenCL-Headers repository..." -ForegroundColor Gray
+        $cloneOutput = & git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers.git $tempDir 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  Error: Failed to clone repository" -ForegroundColor Red
+            Write-Host "  Output: $cloneOutput" -ForegroundColor Gray
+            return $null
+        }
+        
+        # Create target directory
+        New-Item -ItemType Directory -Path $openclDir -Force | Out-Null
+        
+        # Copy CL directory contents
+        $sourceCL = Join-Path $tempDir "CL"
+        if (Test-Path $sourceCL) {
+            Write-Host "  Copying headers from repository..." -ForegroundColor Gray
+            Copy-Item -Path "$sourceCL\*" -Destination $openclDir -Recurse -Force
+            $headerCount = (Get-ChildItem -Path $openclDir -File).Count
+            Write-Host "  Copied $headerCount header files to $openclDir" -ForegroundColor Green
+            return $openclIncludeDir
+        } else {
+            Write-Host "  Error: CL directory not found in repository" -ForegroundColor Red
+            return $null
+        }
+    } catch {
+        Write-Host "  Error: Failed to download headers - $($_.Exception.Message)" -ForegroundColor Red
         return $null
+    } finally {
+        # Clean up temporary directory
+        if (Test-Path $tempDir) {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -349,7 +328,7 @@ if ($openclHeaderPath) {
         } else {
             # List directory contents for debugging
             if (Test-Path $openclHeaderPath) {
-                Write-Host "Contents of $openclHeaderPath:" -ForegroundColor Gray
+                Write-Host "Contents of ${openclHeaderPath}:" -ForegroundColor Gray
                 $items = Get-ChildItem $openclHeaderPath -ErrorAction SilentlyContinue
                 if ($items) {
                     foreach ($item in $items | Select-Object -First 10) {
