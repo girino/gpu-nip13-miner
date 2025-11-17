@@ -28,6 +28,20 @@ func vlog(format string, args ...interface{}) {
 	}
 }
 
+// getKernelSource returns the kernel source code based on the kernel type
+func getKernelSource(kernelType string) (string, string, error) {
+	switch kernelType {
+	case "default":
+		return mineKernelSource, "mine_nonce", nil
+	case "ckolivas":
+		// Note: ckolivas kernel is experimental and may not work correctly
+		// It's based on sgminer's Scrypt implementation, adapted for NIP-13
+		return ckolivasKernelSource, "mine_nonce", nil
+	default:
+		return "", "", fmt.Errorf("unknown kernel type: %s (use 'default' or 'ckolivas')", kernelType)
+	}
+}
+
 // validateNonce validates a candidate nonce by recalculating the hash on CPU.
 // Returns true if valid, false otherwise.
 // Logs errors to stderr.
@@ -289,7 +303,7 @@ func createRealisticBenchmarkEvent() nostr.Event {
 }
 
 // runBenchmark tests different batch sizes to find the optimal one
-func runBenchmark(difficulty int, deviceIndex int) {
+func runBenchmark(difficulty int, deviceIndex int, kernelType string) {
 	fmt.Fprintf(os.Stderr, "Running benchmark to find optimal batch size...\n")
 	fmt.Fprintf(os.Stderr, "Each batch size will be tested 3 times (5 seconds each) with different events.\n\n")
 
@@ -370,7 +384,7 @@ func runBenchmark(difficulty int, deviceIndex int) {
 
 			// Run benchmark for this batch size (5 seconds per run)
 			// Catch OpenCL errors (e.g., batch size too large)
-			rate, err := benchmarkBatchSizeSafe(selectedDevice, &testEvent, difficulty, batchSize)
+			rate, err := benchmarkBatchSizeSafe(selectedDevice, &testEvent, difficulty, batchSize, kernelType)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "\nError testing batch size 10^%d (%d): %v\n", power, batchSize, err)
 				fmt.Fprintf(os.Stderr, "Batch size too large for this device. Stopping benchmark.\n")
@@ -435,7 +449,7 @@ func runBenchmark(difficulty int, deviceIndex int) {
 
 // benchmarkBatchSizeSafe runs a benchmark for a specific batch size
 // Returns the nonce rate in nonces per second and any error encountered
-func benchmarkBatchSizeSafe(device *cl.Device, event *nostr.Event, difficulty int, batchSize int) (float64, error) {
+func benchmarkBatchSizeSafe(device *cl.Device, event *nostr.Event, difficulty int, batchSize int, kernelType string) (float64, error) {
 	// Create context
 	context, err := cl.CreateContext([]*cl.Device{device})
 	if err != nil {
@@ -450,8 +464,14 @@ func benchmarkBatchSizeSafe(device *cl.Device, event *nostr.Event, difficulty in
 	}
 	defer queue.Release()
 
+	// Get kernel source
+	kernelSource, kernelName, err := getKernelSource(kernelType)
+	if err != nil {
+		return 0, err
+	}
+
 	// Create program
-	program, err := context.CreateProgramWithSource([]string{mineKernelSource})
+	program, err := context.CreateProgramWithSource([]string{kernelSource})
 	if err != nil {
 		return 0, fmt.Errorf("failed to create program: %v", err)
 	}
@@ -464,7 +484,7 @@ func benchmarkBatchSizeSafe(device *cl.Device, event *nostr.Event, difficulty in
 	}
 
 	// Create kernel
-	kernel, err := program.CreateKernel("mine_nonce")
+	kernel, err := program.CreateKernel(kernelName)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create kernel: %v", err)
 	}
@@ -609,6 +629,7 @@ func main() {
 	deviceIndex := flag.Int("device", -1, "Select device by index from list (use -list-devices to see available devices)")
 	deviceIndexShort := flag.Int("d", -1, "Select device by index from list (short)")
 	benchmark := flag.Bool("benchmark", false, "Benchmark different batch sizes to find optimal value")
+	kernelType := flag.String("kernel", "default", "Kernel implementation to use: 'default' (our implementation) or 'ckolivas' (experimental, based on sgminer)")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
 	flag.Parse()
 
@@ -646,7 +667,7 @@ func main() {
 
 	// Run benchmark if requested
 	if *benchmark {
-		runBenchmark(*difficulty, *deviceIndex)
+		runBenchmark(*difficulty, *deviceIndex, *kernelType)
 		os.Exit(0)
 	}
 
@@ -795,9 +816,14 @@ func main() {
 	}
 	defer queue.Release()
 
-	// Use embedded mining kernel source
+	// Get kernel source
+	kernelSource, kernelName, err := getKernelSource(*kernelType)
+	if err != nil {
+		log.Fatalf("Failed to get kernel source: %v", err)
+	}
+
 	// Create program
-	program, err := context.CreateProgramWithSource([]string{mineKernelSource})
+	program, err := context.CreateProgramWithSource([]string{kernelSource})
 	if err != nil {
 		log.Fatalf("Failed to create program: %v", err)
 	}
@@ -810,7 +836,7 @@ func main() {
 	}
 
 	// Create kernel
-	kernel, err := program.CreateKernel("mine_nonce")
+	kernel, err := program.CreateKernel(kernelName)
 	if err != nil {
 		log.Fatalf("Failed to create kernel: %v", err)
 	}
