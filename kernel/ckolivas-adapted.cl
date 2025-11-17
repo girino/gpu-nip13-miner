@@ -1,7 +1,6 @@
 /*-
  * Copyright 2009 Colin Percival, 2011 ArtForz, 2011 pooler, 2012 mtrlt,
- * 2012-2013 Con Kolivas.
- * Copyright (c) 2025 Girino Vey.
+ * 2012-2013 Con Kolivas, 2025 Girino Vey.
  * All rights reserved.
  *
  * MODIFIED: This file has been adapted for NIP-13 mining from the original
