@@ -27,44 +27,70 @@ function Download-OpenCLHeaders {
     
     Write-Host "`nDownloading OpenCL headers from Khronos Group..." -ForegroundColor Cyan
     
+    # Enable TLS 1.2 for older PowerShell versions
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    
     # Create directory
     New-Item -ItemType Directory -Path $openclDir -Force | Out-Null
     
-    # List of OpenCL header files to download
+    # List of OpenCL header files to download (minimal set needed for compilation)
     $headers = @(
         "cl.h",
         "cl_platform.h",
         "cl_ext.h",
-        "cl_egl.h",
-        "cl_gl.h",
-        "cl_gl_ext.h",
-        "cl_d3d10.h",
-        "cl_d3d11.h",
-        "cl_dx9_media_sharing.h",
-        "cl_dx9_media_sharing_intel.h",
-        "cl_va_api_media_sharing_intel.h",
         "cl_version.h",
         "opencl.h"
     )
     
-    $baseUrl = "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/main/opencl22/"
+    # Try different URL patterns
+    $baseUrls = @(
+        "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/main/opencl22/",
+        "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/v2023.12.14/opencl22/",
+        "https://raw.githubusercontent.com/KhronosGroup/OpenCL-Headers/v2023.04.17/opencl22/"
+    )
     
     $downloaded = 0
+    $baseUrl = $null
+    
+    # Try to find a working base URL
+    foreach ($url in $baseUrls) {
+        Write-Host "  Trying URL: $url" -ForegroundColor Gray
+        try {
+            $testUrl = "$url" + "cl.h"
+            $testResponse = Invoke-WebRequest -Uri $testUrl -Method Head -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+            if ($testResponse.StatusCode -eq 200) {
+                $baseUrl = $url
+                Write-Host "  Found working URL" -ForegroundColor Green
+                break
+            }
+        } catch {
+            continue
+        }
+    }
+    
+    if (-not $baseUrl) {
+        Write-Host "  Could not find working download URL" -ForegroundColor Yellow
+        Write-Host "  This might be due to network/firewall restrictions" -ForegroundColor Yellow
+        return $null
+    }
+    
+    # Download headers
     foreach ($header in $headers) {
         try {
             $url = "$baseUrl$header"
             $outputPath = Join-Path $openclDir $header
             Write-Host "  Downloading $header..." -ForegroundColor Gray
-            Invoke-WebRequest -Uri $url -OutFile $outputPath -UseBasicParsing -ErrorAction Stop
+            Invoke-WebRequest -Uri $url -OutFile $outputPath -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
             $downloaded++
         } catch {
-            Write-Host "  Warning: Failed to download $header" -ForegroundColor Yellow
+            $errorMsg = $_.Exception.Message
+            Write-Host "  Warning: Failed to download $header - $errorMsg" -ForegroundColor Yellow
         }
     }
     
     if ($downloaded -gt 0) {
         Write-Host "Downloaded $downloaded OpenCL header files to $openclDir" -ForegroundColor Green
-        return "C:\OpenCL\include"
+        return $openclIncludeDir
     } else {
         Write-Host "Failed to download OpenCL headers" -ForegroundColor Red
         return $null
