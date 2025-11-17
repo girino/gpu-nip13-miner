@@ -317,7 +317,7 @@ func runBenchmark(difficulty int, deviceIndex int) {
 	deviceName := selectedDevice.Name()
 	fmt.Fprintf(os.Stderr, "Testing on device: %s\n\n", deviceName)
 
-	// Test batch sizes from 3 to 8 (1000 to 100000000)
+	// Test batch sizes from 3 to 10 (1000 to 10000000000)
 	type benchmarkResult struct {
 		batchSizePower int
 		batchSize      int
@@ -326,7 +326,7 @@ func runBenchmark(difficulty int, deviceIndex int) {
 
 	var results []benchmarkResult
 
-	for power := 3; power <= 8; power++ {
+	for power := 3; power <= 10; power++ {
 		batchSize := int(math.Pow(10, float64(power)))
 
 		fmt.Fprintf(os.Stderr, "Testing batch size 10^%d (%d)... ", power, batchSize)
