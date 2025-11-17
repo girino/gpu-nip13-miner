@@ -509,6 +509,285 @@ func runBenchmark(difficulty int, deviceIndex int, kernelType string) {
 	fmt.Fprintf(os.Stderr, "Use: -batch-size %d\n", best.batchSizePower)
 }
 
+// testSingleKernel tests a single kernel by mining a random event and validating the result
+// Returns true if the mined nonce is valid, false otherwise
+func testSingleKernel(device *cl.Device, event *nostr.Event, difficulty int, kernelType string) (bool, uint64, error) {
+	// Use a reasonable batch size for testing (10^4 = 10000)
+	batchSize := 10000
+	
+	// Create context
+	context, err := cl.CreateContext([]*cl.Device{device})
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to create context: %v", err)
+	}
+	defer context.Release()
+
+	// Create command queue
+	queue, err := context.CreateCommandQueue(device, 0)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to create command queue: %v", err)
+	}
+	defer queue.Release()
+
+	// Get kernel source
+	kernelSource, kernelName, err := getKernelSource(kernelType, device)
+	if err != nil {
+		return false, 0, err
+	}
+
+	// Create program
+	program, err := context.CreateProgramWithSource([]string{kernelSource})
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to create program: %v", err)
+	}
+	defer program.Release()
+
+	// Build program
+	err = program.BuildProgram(nil, "")
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to build program: %v", err)
+	}
+
+	// Create kernel
+	kernel, err := program.CreateKernel(kernelName)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to create kernel: %v", err)
+	}
+	defer kernel.Release()
+
+	// Calculate number of digits needed
+	expectedAttempts := math.Pow(2, float64(difficulty))
+	numDigits := int(math.Ceil(math.Log10(expectedAttempts))) + 2
+	if numDigits < 10 {
+		numDigits = 10
+	}
+
+	// Prepare event with placeholder nonce
+	testEvent := *event
+	noncePlaceholder := fmt.Sprintf("%0*d", numDigits, 0)
+	testEvent.Tags = append(testEvent.Tags, nostr.Tag{"nonce", noncePlaceholder, strconv.Itoa(difficulty)})
+
+	// Serialize event
+	serialized := testEvent.Serialize()
+	serializedLength := len(serialized)
+
+	// Find nonce position
+	noncePlaceholderBytes := []byte(noncePlaceholder)
+	nonceOffset := bytes.Index(serialized, noncePlaceholderBytes)
+	if nonceOffset == -1 {
+		return false, 0, fmt.Errorf("could not find nonce placeholder in serialized event")
+	}
+
+	// Create buffers
+	inputBuffer, err := context.CreateEmptyBuffer(cl.MemReadOnly, serializedLength)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to create input buffer: %v", err)
+	}
+	defer inputBuffer.Release()
+
+	resultSize := 4 // int32
+	resultsBufferSize := batchSize * resultSize
+	resultsBuffer, err := context.CreateEmptyBuffer(cl.MemWriteOnly, resultsBufferSize)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to create results buffer: %v", err)
+	}
+	defer resultsBuffer.Release()
+
+	// Write input buffer
+	_, err = queue.EnqueueWriteBuffer(inputBuffer, true, 0, serializedLength, unsafe.Pointer(&serialized[0]), nil)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to write input buffer: %v", err)
+	}
+
+	// Set kernel arguments
+	err = kernel.SetArgBuffer(0, inputBuffer)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to set kernel arg 0: %v", err)
+	}
+
+	err = kernel.SetArgInt32(1, int32(serializedLength))
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to set kernel arg 1: %v", err)
+	}
+
+	err = kernel.SetArgInt32(2, int32(nonceOffset))
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to set kernel arg 2: %v", err)
+	}
+
+	err = kernel.SetArgInt32(3, int32(difficulty))
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to set kernel arg 3: %v", err)
+	}
+
+	baseNonceLow := uint32(0)
+	baseNonceHigh := uint32(0)
+	err = kernel.SetArgInt32(4, int32(baseNonceLow))
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to set kernel arg 4: %v", err)
+	}
+
+	err = kernel.SetArgInt32(5, int32(baseNonceHigh))
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to set kernel arg 5: %v", err)
+	}
+
+	err = kernel.SetArgBuffer(6, resultsBuffer)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to set kernel arg 6: %v", err)
+	}
+
+	err = kernel.SetArgInt32(7, int32(numDigits))
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to set kernel arg 7: %v", err)
+	}
+
+	// Execute kernel multiple times until we find a valid nonce or exhaust attempts
+	// For difficulty 20, expected attempts = 2^20 ≈ 1M, so we need ~100 batches of 10k
+	// Use 300 batches to account for variance (3x expected)
+	maxBatches := 300 // Limit to prevent infinite loops
+	for batch := 0; batch < maxBatches; batch++ {
+		baseNonce := int64(batch) * int64(batchSize)
+		baseNonceLow = uint32(baseNonce & 0xFFFFFFFF)
+		baseNonceHigh = uint32((baseNonce >> 32) & 0xFFFFFFFF)
+		
+		err = kernel.SetArgInt32(4, int32(baseNonceLow))
+		if err != nil {
+			return false, 0, fmt.Errorf("failed to set kernel arg 4: %v", err)
+		}
+
+		err = kernel.SetArgInt32(5, int32(baseNonceHigh))
+		if err != nil {
+			return false, 0, fmt.Errorf("failed to set kernel arg 5: %v", err)
+		}
+
+		// Execute kernel
+		globalSize := []int{batchSize}
+		_, err = queue.EnqueueNDRangeKernel(kernel, nil, globalSize, nil, nil)
+		if err != nil {
+			return false, 0, fmt.Errorf("failed to enqueue kernel: %v", err)
+		}
+
+		// Read results
+		results := make([]byte, resultsBufferSize)
+		_, err = queue.EnqueueReadBuffer(resultsBuffer, true, 0, resultsBufferSize, unsafe.Pointer(&results[0]), nil)
+		if err != nil {
+			return false, 0, fmt.Errorf("failed to read results buffer: %v", err)
+		}
+
+		// Check results
+		resultIndices := (*[1 << 28]int32)(unsafe.Pointer(&results[0]))[:batchSize:batchSize]
+		for i := 0; i < batchSize; i++ {
+			index := resultIndices[i]
+			if index >= 0 {
+				candidateNonce := uint64(baseNonce) + uint64(index)
+				// Validate the nonce
+				if validateNonce(candidateNonce, event, difficulty, numDigits) {
+					return true, candidateNonce, nil
+				}
+			}
+		}
+	}
+
+	return false, 0, fmt.Errorf("no valid nonce found after %d batches", maxBatches)
+}
+
+// testAllKernels tests all available kernels with random events
+func testAllKernels(difficulty int, deviceIndex int) {
+	fmt.Fprintf(os.Stderr, "Testing all kernels with difficulty %d...\n", difficulty)
+	fmt.Fprintf(os.Stderr, "Each kernel will be tested 10 times with random events.\n\n")
+
+	// Get platforms
+	platforms, err := cl.GetPlatforms()
+	if err != nil {
+		log.Fatalf("Failed to get platforms: %v", err)
+	}
+
+	if len(platforms) == 0 {
+		log.Fatal("No OpenCL platforms found")
+	}
+
+	// Collect all devices
+	var allDevices []*cl.Device
+	for _, platform := range platforms {
+		devices, err := platform.GetDevices(cl.DeviceTypeAll)
+		if err != nil {
+			continue
+		}
+		for _, device := range devices {
+			allDevices = append(allDevices, device)
+		}
+	}
+
+	if len(allDevices) == 0 {
+		log.Fatal("No OpenCL devices found")
+	}
+
+	// Select device
+	var selectedDevice *cl.Device
+	if deviceIndex >= 0 {
+		if deviceIndex >= len(allDevices) {
+			log.Fatalf("Device index %d is out of range (0-%d)", deviceIndex, len(allDevices)-1)
+		}
+		selectedDevice = allDevices[deviceIndex]
+	} else {
+		// Auto-select GPU or first device
+		selectedDevice = nil
+		for _, device := range allDevices {
+			deviceType := device.Type()
+			if (deviceType & cl.DeviceTypeGPU) != 0 {
+				selectedDevice = device
+				break
+			}
+		}
+		if selectedDevice == nil {
+			selectedDevice = allDevices[0]
+		}
+	}
+
+	deviceName := selectedDevice.Name()
+	fmt.Fprintf(os.Stderr, "Testing on device: %s\n\n", deviceName)
+
+	// List of all kernels to test
+	kernels := []string{"default", "ckolivas", "phatk", "diakgcn", "diablo", "poclbm"}
+
+	// Test each kernel
+	for _, kernelType := range kernels {
+		fmt.Fprintf(os.Stderr, "Testing kernel: %s\n", kernelType)
+		
+		correct := 0
+		wrong := 0
+		errors := 0
+
+		for testNum := 0; testNum < 10; testNum++ {
+			// Create a random event for each test
+			testEvent := createRealisticBenchmarkEvent()
+			
+			// Test the kernel
+			valid, nonce, err := testSingleKernel(selectedDevice, &testEvent, difficulty, kernelType)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  Test %d: ERROR - %v\n", testNum+1, err)
+				errors++
+				continue
+			}
+
+			if valid {
+				fmt.Fprintf(os.Stderr, "  Test %d: CORRECT (nonce: %d)\n", testNum+1, nonce)
+				correct++
+			} else {
+				fmt.Fprintf(os.Stderr, "  Test %d: WRONG (nonce: %d failed validation)\n", testNum+1, nonce)
+				wrong++
+			}
+		}
+
+		fmt.Fprintf(os.Stderr, "\nKernel %s results:\n", kernelType)
+		fmt.Fprintf(os.Stderr, "  Correct: %d/10\n", correct)
+		fmt.Fprintf(os.Stderr, "  Wrong: %d/10\n", wrong)
+		fmt.Fprintf(os.Stderr, "  Errors: %d/10\n", errors)
+		fmt.Fprintf(os.Stderr, "\n")
+	}
+}
+
 // benchmarkBatchSizeSafe runs a benchmark for a specific batch size
 // Returns the nonce rate in nonces per second and any error encountered
 func benchmarkBatchSizeSafe(device *cl.Device, event *nostr.Event, difficulty int, batchSize int, kernelType string) (float64, error) {
@@ -697,6 +976,7 @@ func main() {
 	deviceIndex := flag.Int("device", -1, "Select device by index from list (use -list-devices to see available devices)")
 	deviceIndexShort := flag.Int("d", -1, "Select device by index from list (short)")
 	benchmark := flag.Bool("benchmark", false, "Benchmark different batch sizes to find optimal value")
+	testKernels := flag.Bool("test-kernels", false, "Test all kernels with random events to verify correctness")
 	kernelType := flag.String("kernel", "auto", "Kernel implementation to use: 'auto' (select based on device), 'default' (our implementation), 'ckolivas' (sgminer), 'phatk', 'diakgcn', 'diablo', or 'poclbm' (bfgminer)")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
 	flag.Parse()
@@ -736,6 +1016,12 @@ func main() {
 	// Run benchmark if requested
 	if *benchmark {
 		runBenchmark(*difficulty, *deviceIndex, *kernelType)
+		os.Exit(0)
+	}
+
+	// Test all kernels if requested
+	if *testKernels {
+		testAllKernels(*difficulty, *deviceIndex)
 		os.Exit(0)
 	}
 
