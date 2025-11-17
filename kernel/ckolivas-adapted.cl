@@ -1,16 +1,12 @@
 /*-
  * Copyright 2009 Colin Percival, 2011 ArtForz, 2011 pooler, 2012 mtrlt,
  * 2012-2013 Con Kolivas.
- * Copyright (c) 2025 - Adapted version
  * 
  * MODIFIED: This file has been adapted for NIP-13 mining from the original
  * sgminer ckolivas kernel. The original implementation was for Scrypt mining
  * and has been modified to work with NIP-13 proof-of-work (SHA256 of JSON events).
  * 
  * Original source: https://github.com/sgminer-dev/sgminer/blob/master/kernel/ckolivas.cl
- * 
- * This adapted version is licensed under Girino's Anarchist License (GAL).
- * See LICENSE file or https://license.girino.org for details.
  * 
  * Changes made:
  * - Adapted SHA256 implementation for NIP-13 mining
