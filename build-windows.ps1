@@ -311,12 +311,12 @@ Write-Host "Note: OpenCL library will be loaded dynamically at runtime via OpenC
 go build -o gpu-nostr-pow.exe
 
 if (Test-Path "gpu-nostr-pow.exe") {
-    Write-Host "`n✓ Build successful: gpu-nostr-pow.exe" -ForegroundColor Green
+    Write-Host "`n[OK] Build successful: gpu-nostr-pow.exe" -ForegroundColor Green
     $fileInfo = Get-Item "gpu-nostr-pow.exe"
     Write-Host "  Size: $([math]::Round($fileInfo.Length / 1MB, 2)) MB" -ForegroundColor Gray
     Write-Host "  Location: $($fileInfo.FullName)" -ForegroundColor Gray
 } else {
-    Write-Host "`n✗ Build failed" -ForegroundColor Red
+    Write-Host "`n[FAILED] Build failed" -ForegroundColor Red
     exit 1
 }
 
