@@ -74,12 +74,89 @@ func updateProgressBar(nonce int64, digits int, totalTested int64, startTime tim
 	os.Stderr.Sync() // Flush stderr to ensure it's visible
 }
 
+func listAllDevices() {
+	platforms, err := cl.GetPlatforms()
+	if err != nil {
+		log.Fatalf("Failed to get platforms: %v", err)
+	}
+
+	if len(platforms) == 0 {
+		log.Fatal("No OpenCL platforms found")
+	}
+
+	var allDevices []*cl.Device
+	var devicePlatforms []int // Track which platform each device belongs to
+
+	fmt.Println("Available OpenCL devices:")
+	fmt.Println()
+
+	deviceNum := 0
+	for platformIdx, platform := range platforms {
+		platformName, _ := platform.Name()
+		platformVendor, _ := platform.Vendor()
+		fmt.Printf("Platform %d: %s (%s)\n", platformIdx, platformName, platformVendor)
+
+		devices, err := platform.GetDevices(cl.DeviceTypeAll)
+		if err != nil {
+			fmt.Printf("  Error getting devices: %v\n", err)
+			continue
+		}
+
+		for _, device := range devices {
+			deviceName, _ := device.Name()
+			deviceVendor, _ := device.Vendor()
+			deviceType := device.Type()
+			deviceVersion, _ := device.Version()
+			maxComputeUnits := device.MaxComputeUnits()
+			maxWorkGroupSize := device.MaxWorkGroupSize()
+			globalMemSize := device.GlobalMemSize()
+
+			var typeStr string
+			if (deviceType & cl.DeviceTypeGPU) != 0 {
+				typeStr = "GPU"
+			} else if (deviceType & cl.DeviceTypeCPU) != 0 {
+				typeStr = "CPU"
+			} else {
+				typeStr = "Other"
+			}
+
+			fmt.Printf("  [%d] %s (%s) - %s\n", deviceNum, deviceName, deviceVendor, typeStr)
+			fmt.Printf("       Version: %s\n", deviceVersion)
+			fmt.Printf("       Compute Units: %d, Work Group Size: %d, Memory: %d MB\n",
+				maxComputeUnits, maxWorkGroupSize, globalMemSize/(1024*1024))
+			fmt.Println()
+
+			allDevices = append(allDevices, device)
+			devicePlatforms = append(devicePlatforms, platformIdx)
+			deviceNum++
+		}
+	}
+
+	if len(allDevices) == 0 {
+		log.Fatal("No OpenCL devices found")
+	}
+
+	os.Exit(0)
+}
+
 func main() {
 	// Parse CLI arguments
 	difficulty := flag.Int("difficulty", 16, "Number of leading zero bits required (NIP-13)")
 	batchSizePower := flag.Int("batch-size", -1, "Batch size as power of 10 (4=10000, 5=100000, etc.). -1 for auto-detect")
+	listDevices := flag.Bool("list-devices", false, "List available OpenCL devices and exit")
+	listDevicesShort := flag.Bool("l", false, "List available OpenCL devices and exit (short)")
+	deviceIndex := flag.Int("device", -1, "Select device by index from list (use -list-devices to see available devices)")
+	deviceIndexShort := flag.Int("d", -1, "Select device by index from list (short)")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
 	flag.Parse()
+	
+	// Handle short flags
+	if *listDevicesShort {
+		*listDevices = true
+	}
+	if *deviceIndexShort != -1 {
+		*deviceIndex = *deviceIndexShort
+	}
 
 	if *difficulty < 0 || *difficulty > 256 {
 		log.Fatalf("Difficulty must be between 0 and 256, got %d", *difficulty)
@@ -99,15 +176,65 @@ func main() {
 		log.Fatal("No OpenCL platforms found")
 	}
 
-	// Get devices
-	devices, err := platforms[0].GetDevices(cl.DeviceTypeAll)
-	if err != nil {
-		log.Fatalf("Failed to get devices: %v", err)
+	// List devices and exit if requested
+	if *listDevices {
+		listAllDevices()
 	}
 
-	if len(devices) == 0 {
+	// Collect all devices from all platforms
+	var allDevices []*cl.Device
+	var devicePlatforms []int
+	for platformIdx, platform := range platforms {
+		devices, err := platform.GetDevices(cl.DeviceTypeAll)
+		if err != nil {
+			vlog("Warning: Failed to get devices from platform %d: %v", platformIdx, err)
+			continue
+		}
+		for _, device := range devices {
+			allDevices = append(allDevices, device)
+			devicePlatforms = append(devicePlatforms, platformIdx)
+		}
+	}
+
+	if len(allDevices) == 0 {
 		log.Fatal("No OpenCL devices found")
 	}
+
+	// Select device
+	var selectedDevice *cl.Device
+	var selectedPlatformIdx int
+	if *deviceIndex >= 0 {
+		if *deviceIndex >= len(allDevices) {
+			log.Fatalf("Device index %d is out of range. Use -list-devices to see available devices (0-%d)", 
+				*deviceIndex, len(allDevices)-1)
+		}
+		selectedDevice = allDevices[*deviceIndex]
+		selectedPlatformIdx = devicePlatforms[*deviceIndex]
+		deviceName, _ := selectedDevice.Name()
+		vlog("Selected device [%d]: %s", *deviceIndex, deviceName)
+	} else {
+		// Default: prefer GPU devices, then use first available
+		selectedDevice = nil
+		for i, device := range allDevices {
+			deviceType := device.Type()
+			if (deviceType & cl.DeviceTypeGPU) != 0 {
+				selectedDevice = device
+				selectedPlatformIdx = devicePlatforms[i]
+				deviceName, _ := device.Name()
+				vlog("Auto-selected GPU device [%d]: %s", i, deviceName)
+				break
+			}
+		}
+		if selectedDevice == nil {
+			// No GPU found, use first device
+			selectedDevice = allDevices[0]
+			selectedPlatformIdx = devicePlatforms[0]
+			deviceName, _ := selectedDevice.Name()
+			vlog("Auto-selected device [0]: %s", deviceName)
+		}
+	}
+
+	devices := []*cl.Device{selectedDevice}
 
 	// Auto-detect batch size if not specified
 	var batchSize int
