@@ -323,7 +323,26 @@ $env:CC = $cCompiler
 # CGO CFLAGS
 $cgoCflags = "-DCL_TARGET_OPENCL_VERSION=200 -DCL_DEPTH_STENCIL=0x10FF -DCL_UNORM_INT24=0x10DF"
 if ($openclHeaderPath) {
-    $cgoCflags += " -I`"$openclHeaderPath`""
+    # Verify that CL/cl.h exists at the expected location
+    $clHeaderPath = Join-Path $openclHeaderPath "CL\cl.h"
+    if (Test-Path $clHeaderPath) {
+        Write-Host "Verified OpenCL header exists: $clHeaderPath" -ForegroundColor Gray
+    } else {
+        Write-Host "Warning: OpenCL header not found at expected location: $clHeaderPath" -ForegroundColor Yellow
+        Write-Host "Checking directory contents..." -ForegroundColor Gray
+        if (Test-Path $openclHeaderPath) {
+            Get-ChildItem $openclHeaderPath -ErrorAction SilentlyContinue | Select-Object -First 5 | ForEach-Object {
+                Write-Host "  Found: $($_.Name)" -ForegroundColor Gray
+            }
+        }
+    }
+    # Convert Windows path to MinGW format (C:\path -> /c/path)
+    # MinGW GCC prefers Unix-style paths
+    $drive = $openclHeaderPath.Substring(0, 1).ToLower()
+    $path = $openclHeaderPath.Substring(3) -replace '\\', '/'
+    $mingwPath = "/$drive$path"
+    Write-Host "Using MinGW path format: $mingwPath" -ForegroundColor Gray
+    $cgoCflags += " -I$mingwPath"
 }
 $env:CGO_CFLAGS = $cgoCflags
 
