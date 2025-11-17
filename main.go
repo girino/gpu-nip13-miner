@@ -317,7 +317,7 @@ func runBenchmark(difficulty int, deviceIndex int) {
 	deviceName := selectedDevice.Name()
 	fmt.Fprintf(os.Stderr, "Testing on device: %s\n\n", deviceName)
 
-	// Test batch sizes from 3 to 6 (1000 to 1000000)
+	// Test batch sizes from 3 to 8 (1000 to 100000000)
 	type benchmarkResult struct {
 		batchSizePower int
 		batchSize      int
@@ -595,8 +595,8 @@ func main() {
 		log.Fatalf("Difficulty must be between 0 and 256, got %d", *difficulty)
 	}
 
-	if *batchSizePower < -1 || *batchSizePower > 6 {
-		log.Fatalf("Batch size power must be between -1 (auto) and 6 (1000000), got %d", *batchSizePower)
+	if *batchSizePower < -1 || *batchSizePower > 10 {
+		log.Fatalf("Batch size power must be between -1 (auto) and 10 (10000000000), got %d", *batchSizePower)
 	}
 
 	// Get platforms
