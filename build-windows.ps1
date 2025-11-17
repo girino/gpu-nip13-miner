@@ -438,15 +438,13 @@ if ($openclHeaderPath) {
         exit 1
     }
     
-    # MinGW GCC needs Unix-style paths (/c/path) for include directories
-    # Convert Windows path to MinGW format
-    $drive = $openclHeaderPath.Substring(0, 1).ToLower()
-    $path = $openclHeaderPath.Substring(3) -replace '\\', '/'
-    $mingwPath = "/$drive/$path"
-    $mingwPath = $mingwPath.TrimEnd('/')
-    Write-Host "Using MinGW path format: $mingwPath" -ForegroundColor Gray
-    # Don't use quotes - MinGW paths don't need them and CGO may mishandle them
-    $cgoCflags += " -I$mingwPath"
+    # MinGW GCC on Windows can handle Windows paths directly
+    # Use Windows path with forward slashes (MinGW converts them)
+    $windowsPath = $openclHeaderPath -replace '\\', '/'
+    $windowsPath = $windowsPath.TrimEnd('/')
+    Write-Host "Using Windows path with forward slashes: $windowsPath" -ForegroundColor Gray
+    # Use Windows path directly - MinGW GCC handles forward slashes in Windows paths
+    $cgoCflags += " -I`"$windowsPath`""
 }
 $env:CGO_CFLAGS = $cgoCflags
 
@@ -475,7 +473,9 @@ if ($openclHeaderPath) {
 int main() { return 0; }
 "@
     $testContent | Out-File -FilePath $testFile -Encoding ASCII
-    $testOutput = & $env:CC $env:CGO_CFLAGS -c $testFile -o "$env:TEMP\test_opencl.o" 2>&1
+    # Split CFLAGS properly for PowerShell
+    $cflagsArray = $env:CGO_CFLAGS -split ' '
+    $testOutput = & $env:CC $cflagsArray -c $testFile -o "$env:TEMP\test_opencl.o" 2>&1
     $testExitCode = $LASTEXITCODE
     Remove-Item -Path $testFile -Force -ErrorAction SilentlyContinue
     Remove-Item -Path "$env:TEMP\test_opencl.o" -Force -ErrorAction SilentlyContinue
