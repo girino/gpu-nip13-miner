@@ -514,7 +514,7 @@ func runBenchmark(difficulty int, deviceIndex int, kernelType string) {
 func testSingleKernel(device *cl.Device, event *nostr.Event, difficulty int, kernelType string) (bool, uint64, error) {
 	// Use a reasonable batch size for testing (10^4 = 10000)
 	batchSize := 10000
-	
+
 	// Create context
 	context, err := cl.CreateContext([]*cl.Device{device})
 	if err != nil {
@@ -650,7 +650,7 @@ func testSingleKernel(device *cl.Device, event *nostr.Event, difficulty int, ker
 		baseNonce := int64(batch) * int64(batchSize)
 		baseNonceLow = uint32(baseNonce & 0xFFFFFFFF)
 		baseNonceHigh = uint32((baseNonce >> 32) & 0xFFFFFFFF)
-		
+
 		err = kernel.SetArgInt32(4, int32(baseNonceLow))
 		if err != nil {
 			return false, 0, fmt.Errorf("failed to set kernel arg 4: %v", err)
@@ -751,6 +751,15 @@ func testAllKernels(difficulty int, deviceIndex int) {
 	// List of all kernels to test
 	kernels := []string{"default", "ckolivas", "phatk", "diakgcn", "diablo", "poclbm"}
 
+	// Store results for summary
+	type kernelResult struct {
+		name    string
+		correct int
+		wrong   int
+		errors  int
+	}
+	var results []kernelResult
+
 	// Test each kernel
 	for _, kernelType := range kernels {
 		fmt.Fprintf(os.Stderr, "Testing kernel: %s\n", kernelType)
@@ -785,7 +794,24 @@ func testAllKernels(difficulty int, deviceIndex int) {
 		fmt.Fprintf(os.Stderr, "  Wrong: %d/10\n", wrong)
 		fmt.Fprintf(os.Stderr, "  Errors: %d/10\n", errors)
 		fmt.Fprintf(os.Stderr, "\n")
+
+		// Store results for summary
+		results = append(results, kernelResult{
+			name:    kernelType,
+			correct: correct,
+			wrong:   wrong,
+			errors:  errors,
+		})
 	}
+
+	// Print summary
+	fmt.Fprintf(os.Stderr, "=== Summary ===\n")
+	fmt.Fprintf(os.Stderr, "%-12s %8s %8s %8s\n", "Kernel", "Correct", "Wrong", "Errors")
+	fmt.Fprintf(os.Stderr, "%-12s %8s %8s %8s\n", "------", "-------", "-----", "------")
+	for _, r := range results {
+		fmt.Fprintf(os.Stderr, "%-12s %8d %8d %8d\n", r.name, r.correct, r.wrong, r.errors)
+	}
+	fmt.Fprintf(os.Stderr, "\n")
 }
 
 // benchmarkBatchSizeSafe runs a benchmark for a specific batch size
