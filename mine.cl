@@ -86,10 +86,10 @@ void process_block(uchar block[64], uint h[8]) {
     h[7] += h_val;
 }
 
-// Convert integer to 10-digit decimal ASCII string
-void int_to_ascii(ulong n, uchar str[10]) {
-    // Convert to 10-digit string (digits from right to left)
-    for (int i = 9; i >= 0; i--) {
+// Convert integer to N-digit decimal ASCII string (zero-padded)
+void int_to_ascii(ulong n, uchar str[], int num_digits) {
+    // Convert to N-digit string (digits from right to left)
+    for (int i = num_digits - 1; i >= 0; i--) {
         str[i] = '0' + (n % 10);
         n /= 10;
     }
@@ -188,14 +188,22 @@ __kernel void mine_nonce(
     int serialized_length,             // Length of serialized event
     int nonce_offset,                  // Byte position where nonce starts in string
     int difficulty,                    // Required leading zero bits
-    int base_nonce,                    // Starting nonce value (e.g., 1000000000)
-    __global uchar* results            // Output: [found (1 byte), nonce (8 bytes), event_id (32 bytes)]
+    int base_nonce,                    // Starting nonce value
+    __global uchar* results,           // Output: [found (1 byte), nonce (8 bytes), event_id (32 bytes)]
+    int num_digits                     // Number of digits for nonce (e.g., 10, 20, etc.)
 ) {
     int global_id = get_global_id(0);
     ulong nonce = (ulong)base_nonce + (ulong)global_id;
     
-    // Check if nonce exceeds maximum (9999999999)
-    if (nonce > 9999999999UL) {
+    // Calculate maximum nonce value (10^num_digits - 1)
+    ulong max_nonce = 1;
+    for (int i = 0; i < num_digits; i++) {
+        max_nonce *= 10;
+    }
+    max_nonce -= 1;
+    
+    // Check if nonce exceeds maximum
+    if (nonce > max_nonce) {
         results[global_id * 41] = 0; // Not found
         return;
     }
@@ -213,12 +221,17 @@ __kernel void mine_nonce(
         serialized_copy[i] = base_serialized[i];
     }
     
-    // Convert nonce to 10-digit ASCII string
-    uchar nonce_str[10];
-    int_to_ascii(nonce, nonce_str);
+    // Convert nonce to N-digit ASCII string (zero-padded)
+    // Use a fixed-size array that can handle up to 22 digits (for difficulty 64)
+    uchar nonce_str[22];
+    if (num_digits > 22) {
+        results[global_id * 41] = 0; // Too many digits
+        return;
+    }
+    int_to_ascii(nonce, nonce_str, num_digits);
     
     // Replace nonce in the serialized string
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < num_digits; i++) {
         serialized_copy[nonce_offset + i] = nonce_str[i];
     }
     
