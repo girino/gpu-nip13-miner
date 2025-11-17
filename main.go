@@ -326,7 +326,7 @@ func runBenchmark(difficulty int, deviceIndex int) {
 
 	var results []benchmarkResult
 
-	for power := 3; power <= 6; power++ {
+	for power := 3; power <= 8; power++ {
 		batchSize := int(math.Pow(10, float64(power)))
 
 		fmt.Fprintf(os.Stderr, "Testing batch size 10^%d (%d)... ", power, batchSize)
