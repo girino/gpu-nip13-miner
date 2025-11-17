@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"time"
 	"unsafe"
 
 	cl "github.com/jgillich/go-opencl/cl"
@@ -24,6 +25,57 @@ func vlog(format string, args ...interface{}) {
 	if verbose {
 		log.Printf(format, args...)
 	}
+}
+
+func updateProgressBar(nonce int64, digits int, totalTested int64, startTime time.Time, maxNonce int64) {
+	elapsed := time.Since(startTime)
+	var rate float64
+	if elapsed.Seconds() > 0 {
+		rate = float64(totalTested) / elapsed.Seconds()
+	}
+
+	// Calculate percentage if we have a max nonce
+	var percent float64
+	if maxNonce > 0 {
+		percent = float64(nonce) / float64(maxNonce) * 100
+		if percent > 100 {
+			percent = 100
+		}
+	}
+
+	// Format rate
+	var rateStr string
+	if rate >= 1000000 {
+		rateStr = fmt.Sprintf("%.2fM", rate/1000000)
+	} else if rate >= 1000 {
+		rateStr = fmt.Sprintf("%.2fK", rate/1000)
+	} else {
+		rateStr = fmt.Sprintf("%.0f", rate)
+	}
+
+	// Format elapsed time
+	elapsedSec := int(elapsed.Seconds())
+	hours := elapsedSec / 3600
+	minutes := (elapsedSec % 3600) / 60
+	seconds := elapsedSec % 60
+	var elapsedStr string
+	if hours > 0 {
+		elapsedStr = fmt.Sprintf("%dh%dm%ds", hours, minutes, seconds)
+	} else if minutes > 0 {
+		elapsedStr = fmt.Sprintf("%dm%ds", minutes, seconds)
+	} else {
+		elapsedStr = fmt.Sprintf("%ds", seconds)
+	}
+
+	// Print progress bar to stderr
+	if maxNonce > 0 {
+		fmt.Fprintf(os.Stderr, "\r[%d digits] Nonce: %d (%.1f%%) | Rate: %s nonces/s | Elapsed: %s",
+			digits, nonce, percent, rateStr, elapsedStr)
+	} else {
+		fmt.Fprintf(os.Stderr, "\r[%d digits] Nonce: %d | Rate: %s nonces/s | Elapsed: %s",
+			digits, nonce, rateStr, elapsedStr)
+	}
+	os.Stderr.Sync() // Flush stderr to ensure it's visible
 }
 
 func main() {
@@ -260,6 +312,11 @@ func main() {
 	var serialized []byte
 	var inputBuffer *cl.MemObject
 
+	// Progress tracking
+	startTime := time.Now()
+	totalTested := int64(0)
+	lastProgressUpdate := time.Now()
+
 	for currentDigits <= maxRequiredDigits && !found {
 		// Calculate nonce range for current digit size
 		baseNonceValue := int64(math.Pow(10, float64(currentDigits-1)))
@@ -389,9 +446,21 @@ func main() {
 
 			if !found {
 				currentNonce += int64(remaining)
+				totalTested += int64(remaining)
+
+				// Update progress bar every 100ms
+				now := time.Now()
+				if now.Sub(lastProgressUpdate) >= 100*time.Millisecond {
+					updateProgressBar(currentNonce-1, currentDigits, totalTested, startTime, maxNonceValue)
+					lastProgressUpdate = now
+				}
+
 				if currentNonce%1000000 == 0 {
 					vlog("Tested up to nonce %d (%d digits)...", currentNonce-1, currentDigits)
 				}
+			} else {
+				// Clear progress bar when found
+				fmt.Fprintf(os.Stderr, "\r%s\r", "                                                                                ")
 			}
 		}
 
@@ -401,6 +470,9 @@ func main() {
 			currentDigits++
 		}
 	}
+
+	// Clear progress bar line
+	fmt.Fprintf(os.Stderr, "\r%s\r", "                                                                                ")
 
 	if inputBuffer != nil {
 		inputBuffer.Release()
