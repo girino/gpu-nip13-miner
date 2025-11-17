@@ -27,6 +27,68 @@ func vlog(format string, args ...interface{}) {
 	}
 }
 
+// validateNonce validates a candidate nonce and event ID.
+// Returns true if valid, false otherwise.
+// Logs errors to stderr.
+func validateNonce(candidateNonce uint64, candidateEventID []byte, event *nostr.Event, difficulty int) bool {
+	// Create a copy of the event for validation
+	testEvent := *event
+	
+	// Calculate how many digits the candidate nonce needs
+	foundNonceDigits := int(math.Ceil(math.Log10(float64(candidateNonce) + 1)))
+	minRequiredDigits := difficulty/4 + 2
+	if foundNonceDigits < minRequiredDigits {
+		foundNonceDigits = minRequiredDigits
+	}
+	nonceStr := fmt.Sprintf("%0*d", foundNonceDigits, candidateNonce)
+	
+	// Find and update nonce tag
+	foundNonceTag := false
+	for i, tag := range testEvent.Tags {
+		if len(tag) > 0 && tag[0] == "nonce" {
+			testEvent.Tags[i] = nostr.Tag{"nonce", nonceStr, strconv.Itoa(difficulty)}
+			foundNonceTag = true
+			break
+		}
+	}
+	if !foundNonceTag {
+		testEvent.Tags = append(testEvent.Tags, nostr.Tag{"nonce", nonceStr, strconv.Itoa(difficulty)})
+	}
+	
+	// Set the event ID from candidate
+	eventIDHex := ""
+	for _, b := range candidateEventID {
+		eventIDHex += fmt.Sprintf("%02x", b)
+	}
+	testEvent.ID = eventIDHex
+	
+	// Validate the event ID by re-serializing
+	expectedID := testEvent.GetID()
+	if expectedID != eventIDHex {
+		fmt.Fprintf(os.Stderr, "Validation error: Event ID mismatch! Expected: %s, Got: %s (nonce: %d). Continuing...\n", 
+			expectedID, eventIDHex, candidateNonce)
+		return false
+	}
+	
+	// Validate difficulty using NIP-13 Check function
+	if err := nip13.Check(eventIDHex, difficulty); err != nil {
+		fmt.Fprintf(os.Stderr, "Validation error: NIP-13 validation failed: %v (nonce: %d). Continuing...\n", 
+			err, candidateNonce)
+		return false
+	}
+	
+	// Additional validation: check committed difficulty matches
+	committedDiff := nip13.CommittedDifficulty(&testEvent)
+	if committedDiff != difficulty {
+		fmt.Fprintf(os.Stderr, "Validation error: Committed difficulty mismatch! Expected: %d, Got: %d (nonce: %d). Continuing...\n", 
+			difficulty, committedDiff, candidateNonce)
+		return false
+	}
+	
+	// All validations passed
+	return true
+}
+
 func updateProgressBar(nonce int64, digits int, totalTested int64, startTime time.Time, difficulty int) {
 	elapsed := time.Since(startTime)
 	var rate float64
@@ -548,13 +610,24 @@ func main() {
 			// Check results
 			for i := 0; i < remaining; i++ {
 				if results[i*resultSize] == 1 {
-					// Found valid nonce!
+					// Found candidate nonce!
 					foundNonceBytes := results[i*resultSize+1 : i*resultSize+9]
-					foundNonce = binary.BigEndian.Uint64(foundNonceBytes)
-					foundEventID = make([]byte, 32)
-					copy(foundEventID, results[i*resultSize+9:i*resultSize+41])
-					found = true
-					break
+					candidateNonce := binary.BigEndian.Uint64(foundNonceBytes)
+					candidateEventID := make([]byte, 32)
+					copy(candidateEventID, results[i*resultSize+9:i*resultSize+41])
+					
+					// Validate this candidate before accepting it
+					if validateNonce(candidateNonce, candidateEventID, &event, *difficulty) {
+						// Valid nonce found!
+						foundNonce = candidateNonce
+						foundEventID = candidateEventID
+						found = true
+						break
+					} else {
+						// Invalid result, continue mining
+						// Error already logged to stderr by validateNonce
+						continue
+					}
 				}
 			}
 
@@ -618,22 +691,11 @@ func main() {
 	}
 	event.ID = eventIDHex
 
-	// Validate the event ID using NIP-13
-	// First, verify the ID matches what we calculated by re-serializing
+	// Final validation (should always pass since we validated in the loop)
+	// This is just a sanity check
 	expectedID := event.GetID()
 	if expectedID != eventIDHex {
-		log.Fatalf("Event ID mismatch! Expected: %s, Got: %s", expectedID, eventIDHex)
-	}
-
-	// Validate difficulty using NIP-13 Check function
-	if err := nip13.Check(eventIDHex, *difficulty); err != nil {
-		log.Fatalf("NIP-13 validation failed: %v", err)
-	}
-
-	// Additional validation: check committed difficulty matches
-	committedDiff := nip13.CommittedDifficulty(&event)
-	if committedDiff != *difficulty {
-		log.Fatalf("Committed difficulty mismatch! Expected: %d, Got: %d", *difficulty, committedDiff)
+		log.Fatalf("Internal error: Event ID mismatch after validation! Expected: %s, Got: %s", expectedID, eventIDHex)
 	}
 
 	// Log validation success
