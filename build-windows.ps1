@@ -443,8 +443,8 @@ if ($openclHeaderPath) {
     $windowsPath = $openclHeaderPath -replace '\\', '/'
     $windowsPath = $windowsPath.TrimEnd('/')
     Write-Host "Using Windows path with forward slashes: $windowsPath" -ForegroundColor Gray
-    # Use Windows path directly - MinGW GCC handles forward slashes in Windows paths
-    $cgoCflags += " -I`"$windowsPath`""
+    # Don't use quotes - CGO may process them incorrectly, and path has no spaces
+    $cgoCflags += " -I$windowsPath"
 }
 $env:CGO_CFLAGS = $cgoCflags
 
