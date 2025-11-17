@@ -28,8 +28,51 @@ func vlog(format string, args ...interface{}) {
 	}
 }
 
+// selectKernelForDevice automatically selects the best kernel for a given device
+// Returns "default" for CPUs and Intel GPUs, "ckolivas" for other GPUs
+func selectKernelForDevice(device *cl.Device) string {
+	deviceType := device.Type()
+	deviceVendor := device.Vendor()
+
+	// CPUs always use default kernel
+	if (deviceType & cl.DeviceTypeCPU) != 0 {
+		return "default"
+	}
+
+	// Intel GPUs use default kernel
+	if (deviceType & cl.DeviceTypeGPU) != 0 {
+		// Check if vendor contains "Intel" (case-insensitive check)
+		vendorLower := ""
+		for _, r := range deviceVendor {
+			vendorLower += string(r | 0x20) // Convert to lowercase
+		}
+		// Check if "intel" is contained in the vendor string
+		if len(vendorLower) >= 5 {
+			for i := 0; i <= len(vendorLower)-5; i++ {
+				if vendorLower[i:i+5] == "intel" {
+					return "default"
+				}
+			}
+		}
+		// Other GPUs (NVIDIA, AMD, etc.) use ckolivas
+		return "ckolivas"
+	}
+
+	// Default fallback
+	return "default"
+}
+
 // getKernelSource returns the kernel source code based on the kernel type
-func getKernelSource(kernelType string) (string, string, error) {
+// If kernelType is "auto", it will be determined based on the device
+func getKernelSource(kernelType string, device *cl.Device) (string, string, error) {
+	// Auto-select kernel based on device if "auto" is specified
+	if kernelType == "auto" {
+		if device == nil {
+			return "", "", fmt.Errorf("device is required for auto kernel selection")
+		}
+		kernelType = selectKernelForDevice(device)
+	}
+
 	switch kernelType {
 	case "default":
 		return mineKernelSource, "mine_nonce", nil
@@ -38,7 +81,7 @@ func getKernelSource(kernelType string) (string, string, error) {
 		// It's based on sgminer's Scrypt implementation, adapted for NIP-13
 		return ckolivasKernelSource, "mine_nonce", nil
 	default:
-		return "", "", fmt.Errorf("unknown kernel type: %s (use 'default' or 'ckolivas')", kernelType)
+		return "", "", fmt.Errorf("unknown kernel type: %s (use 'default', 'ckolivas', or 'auto')", kernelType)
 	}
 }
 
@@ -359,7 +402,12 @@ func runBenchmark(difficulty int, deviceIndex int, kernelType string) {
 
 	deviceName := selectedDevice.Name()
 	fmt.Fprintf(os.Stderr, "Testing on device: %s\n", deviceName)
-	fmt.Fprintf(os.Stderr, "Using kernel: %s\n", kernelType)
+	// Show actual kernel selected (in case auto was used)
+	actualKernel := kernelType
+	if kernelType == "auto" {
+		actualKernel = selectKernelForDevice(selectedDevice)
+	}
+	fmt.Fprintf(os.Stderr, "Using kernel: %s\n", actualKernel)
 	fmt.Fprintf(os.Stderr, "\n")
 
 	// Test batch sizes from 3 to 10 (1000 to 10000000000)
@@ -467,11 +515,16 @@ func benchmarkBatchSizeSafe(device *cl.Device, event *nostr.Event, difficulty in
 	defer queue.Release()
 
 	// Get kernel source
-	kernelSource, kernelName, err := getKernelSource(kernelType)
+	kernelSource, kernelName, err := getKernelSource(kernelType, device)
 	if err != nil {
 		return 0, err
 	}
-	vlog("Loading kernel: %s (function: %s)", kernelType, kernelName)
+	// Show actual kernel selected (in case auto was used)
+	actualKernel := kernelType
+	if kernelType == "auto" {
+		actualKernel = selectKernelForDevice(device)
+	}
+	vlog("Loading kernel: %s (function: %s)", actualKernel, kernelName)
 
 	// Create program
 	program, err := context.CreateProgramWithSource([]string{kernelSource})
@@ -632,7 +685,7 @@ func main() {
 	deviceIndex := flag.Int("device", -1, "Select device by index from list (use -list-devices to see available devices)")
 	deviceIndexShort := flag.Int("d", -1, "Select device by index from list (short)")
 	benchmark := flag.Bool("benchmark", false, "Benchmark different batch sizes to find optimal value")
-	kernelType := flag.String("kernel", "default", "Kernel implementation to use: 'default' (our implementation) or 'ckolivas' (experimental, based on sgminer)")
+	kernelType := flag.String("kernel", "auto", "Kernel implementation to use: 'auto' (select based on device), 'default' (our implementation), or 'ckolivas' (experimental, based on sgminer)")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
 	flag.Parse()
 
@@ -820,11 +873,18 @@ func main() {
 	defer queue.Release()
 
 	// Get kernel source
-	kernelSource, kernelName, err := getKernelSource(*kernelType)
+	kernelSource, kernelName, err := getKernelSource(*kernelType, selectedDevice)
 	if err != nil {
 		log.Fatalf("Failed to get kernel source: %v", err)
 	}
-	vlog("Using kernel: %s (function: %s)", *kernelType, kernelName)
+	// Show actual kernel selected (in case auto was used)
+	actualKernel := *kernelType
+	if *kernelType == "auto" {
+		actualKernel = selectKernelForDevice(selectedDevice)
+		vlog("Auto-selected kernel: %s (function: %s) for device: %s", actualKernel, kernelName, selectedDevice.Name())
+	} else {
+		vlog("Using kernel: %s (function: %s)", actualKernel, kernelName)
+	}
 
 	// Create program
 	program, err := context.CreateProgramWithSource([]string{kernelSource})
