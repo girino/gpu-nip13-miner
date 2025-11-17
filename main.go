@@ -33,7 +33,7 @@ func vlog(format string, args ...interface{}) {
 func validateNonce(candidateNonce uint64, candidateEventID []byte, event *nostr.Event, difficulty int) bool {
 	// Create a copy of the event for validation
 	testEvent := *event
-	
+
 	// Calculate how many digits the candidate nonce needs
 	foundNonceDigits := int(math.Ceil(math.Log10(float64(candidateNonce) + 1)))
 	minRequiredDigits := difficulty/4 + 2
@@ -41,7 +41,7 @@ func validateNonce(candidateNonce uint64, candidateEventID []byte, event *nostr.
 		foundNonceDigits = minRequiredDigits
 	}
 	nonceStr := fmt.Sprintf("%0*d", foundNonceDigits, candidateNonce)
-	
+
 	// Find and update nonce tag
 	foundNonceTag := false
 	for i, tag := range testEvent.Tags {
@@ -54,37 +54,37 @@ func validateNonce(candidateNonce uint64, candidateEventID []byte, event *nostr.
 	if !foundNonceTag {
 		testEvent.Tags = append(testEvent.Tags, nostr.Tag{"nonce", nonceStr, strconv.Itoa(difficulty)})
 	}
-	
+
 	// Set the event ID from candidate
 	eventIDHex := ""
 	for _, b := range candidateEventID {
 		eventIDHex += fmt.Sprintf("%02x", b)
 	}
 	testEvent.ID = eventIDHex
-	
+
 	// Validate the event ID by re-serializing
 	expectedID := testEvent.GetID()
 	if expectedID != eventIDHex {
-		fmt.Fprintf(os.Stderr, "Validation error: Event ID mismatch! Expected: %s, Got: %s (nonce: %d). Continuing...\n", 
+		fmt.Fprintf(os.Stderr, "Validation error: Event ID mismatch! Expected: %s, Got: %s (nonce: %d). Continuing...\n",
 			expectedID, eventIDHex, candidateNonce)
 		return false
 	}
-	
+
 	// Validate difficulty using NIP-13 Check function
 	if err := nip13.Check(eventIDHex, difficulty); err != nil {
-		fmt.Fprintf(os.Stderr, "Validation error: NIP-13 validation failed: %v (nonce: %d). Continuing...\n", 
+		fmt.Fprintf(os.Stderr, "Validation error: NIP-13 validation failed: %v (nonce: %d). Continuing...\n",
 			err, candidateNonce)
 		return false
 	}
-	
+
 	// Additional validation: check committed difficulty matches
 	committedDiff := nip13.CommittedDifficulty(&testEvent)
 	if committedDiff != difficulty {
-		fmt.Fprintf(os.Stderr, "Validation error: Committed difficulty mismatch! Expected: %d, Got: %d (nonce: %d). Continuing...\n", 
+		fmt.Fprintf(os.Stderr, "Validation error: Committed difficulty mismatch! Expected: %d, Got: %d (nonce: %d). Continuing...\n",
 			difficulty, committedDiff, candidateNonce)
 		return false
 	}
-	
+
 	// All validations passed
 	return true
 }
@@ -211,7 +211,7 @@ func main() {
 	deviceIndexShort := flag.Int("d", -1, "Select device by index from list (short)")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
 	flag.Parse()
-	
+
 	// Handle short flags
 	if *listDevicesShort {
 		*listDevices = true
@@ -266,7 +266,7 @@ func main() {
 	var selectedDevice *cl.Device
 	if *deviceIndex >= 0 {
 		if *deviceIndex >= len(allDevices) {
-			log.Fatalf("Device index %d is out of range. Use -list-devices to see available devices (0-%d)", 
+			log.Fatalf("Device index %d is out of range. Use -list-devices to see available devices (0-%d)",
 				*deviceIndex, len(allDevices)-1)
 		}
 		selectedDevice = allDevices[*deviceIndex]
@@ -572,19 +572,27 @@ func main() {
 				log.Fatalf("Failed to set kernel arg 3: %v", err)
 			}
 
-			err = kernel.SetArgInt32(4, int32(currentNonce))
+			// Pass nonce as two 32-bit values to avoid overflow
+			baseNonceLow := uint32(currentNonce & 0xFFFFFFFF)
+			baseNonceHigh := uint32((currentNonce >> 32) & 0xFFFFFFFF)
+			err = kernel.SetArgInt32(4, int32(baseNonceLow))
 			if err != nil {
 				log.Fatalf("Failed to set kernel arg 4: %v", err)
 			}
 
-			err = kernel.SetArgInt32(6, int32(currentDigits))
-			if err != nil {
-				log.Fatalf("Failed to set kernel arg 6: %v", err)
-			}
-
-			err = kernel.SetArgBuffer(5, resultsBuffer)
+			err = kernel.SetArgInt32(5, int32(baseNonceHigh))
 			if err != nil {
 				log.Fatalf("Failed to set kernel arg 5: %v", err)
+			}
+
+			err = kernel.SetArgBuffer(6, resultsBuffer)
+			if err != nil {
+				log.Fatalf("Failed to set kernel arg 6 (results buffer): %v", err)
+			}
+
+			err = kernel.SetArgInt32(7, int32(currentDigits))
+			if err != nil {
+				log.Fatalf("Failed to set kernel arg 7: %v", err)
 			}
 
 			// Execute kernel
@@ -615,7 +623,7 @@ func main() {
 					candidateNonce := binary.BigEndian.Uint64(foundNonceBytes)
 					candidateEventID := make([]byte, 32)
 					copy(candidateEventID, results[i*resultSize+9:i*resultSize+41])
-					
+
 					// Validate this candidate before accepting it
 					if validateNonce(candidateNonce, candidateEventID, &event, *difficulty) {
 						// Valid nonce found!

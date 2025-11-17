@@ -188,19 +188,33 @@ __kernel void mine_nonce(
     int serialized_length,             // Length of serialized event
     int nonce_offset,                  // Byte position where nonce starts in string
     int difficulty,                    // Required leading zero bits
-    int base_nonce,                    // Starting nonce value
+    int base_nonce_low,                // Starting nonce value (low 32 bits)
+    int base_nonce_high,               // Starting nonce value (high 32 bits)
     __global uchar* results,           // Output: [found (1 byte), nonce (8 bytes), event_id (32 bytes)]
     int num_digits                     // Number of digits for nonce (e.g., 10, 20, etc.)
 ) {
     int global_id = get_global_id(0);
-    ulong nonce = (ulong)base_nonce + (ulong)global_id;
+    
+    // Reconstruct 64-bit base_nonce from high and low 32-bit parts
+    // Cast to uint first to handle sign extension correctly
+    ulong base_nonce = ((ulong)(uint)base_nonce_high << 32) | ((ulong)(uint)base_nonce_low);
+    ulong nonce = base_nonce + (ulong)global_id;
     
     // Calculate maximum nonce value (10^num_digits - 1)
-    ulong max_nonce = 1;
-    for (int i = 0; i < num_digits; i++) {
-        max_nonce *= 10;
+    // Use a safer calculation to prevent overflow
+    ulong max_nonce = 0;
+    if (num_digits <= 19) {
+        // For num_digits <= 19, we can safely calculate 10^num_digits
+        max_nonce = 1;
+        for (int i = 0; i < num_digits; i++) {
+            max_nonce *= 10;
+        }
+        max_nonce -= 1;
+    } else {
+        // For num_digits > 19, use ULONG_MAX as a safe upper bound
+        // (10^19 is approximately 1.0e19, which is close to ULONG_MAX ~ 1.8e19)
+        max_nonce = 0xFFFFFFFFFFFFFFFFUL; // ULONG_MAX
     }
-    max_nonce -= 1;
     
     // Check if nonce exceeds maximum
     if (nonce > max_nonce) {
