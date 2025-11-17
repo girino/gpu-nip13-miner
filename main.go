@@ -27,22 +27,25 @@ func vlog(format string, args ...interface{}) {
 	}
 }
 
-func updateProgressBar(nonce int64, digits int, totalTested int64, startTime time.Time, maxNonce int64) {
+func updateProgressBar(nonce int64, digits int, totalTested int64, startTime time.Time, difficulty int) {
 	elapsed := time.Since(startTime)
 	var rate float64
 	if elapsed.Seconds() > 0 {
 		rate = float64(totalTested) / elapsed.Seconds()
 	}
-
-	// Calculate percentage if we have a max nonce
+	
+	// Calculate expected iterations: 2^difficulty
+	expectedIterations := math.Pow(2, float64(difficulty))
+	
+	// Calculate percentage relative to expected iterations
 	var percent float64
-	if maxNonce > 0 {
-		percent = float64(nonce) / float64(maxNonce) * 100
+	if expectedIterations > 0 {
+		percent = float64(totalTested) / expectedIterations * 100
 		if percent > 100 {
 			percent = 100
 		}
 	}
-
+	
 	// Format rate
 	var rateStr string
 	if rate >= 1000000 {
@@ -52,7 +55,7 @@ func updateProgressBar(nonce int64, digits int, totalTested int64, startTime tim
 	} else {
 		rateStr = fmt.Sprintf("%.0f", rate)
 	}
-
+	
 	// Format elapsed time
 	elapsedSec := int(elapsed.Seconds())
 	hours := elapsedSec / 3600
@@ -66,15 +69,10 @@ func updateProgressBar(nonce int64, digits int, totalTested int64, startTime tim
 	} else {
 		elapsedStr = fmt.Sprintf("%ds", seconds)
 	}
-
+	
 	// Print progress bar to stderr
-	if maxNonce > 0 {
-		fmt.Fprintf(os.Stderr, "\r[%d digits] Nonce: %d (%.1f%%) | Rate: %s nonces/s | Elapsed: %s",
-			digits, nonce, percent, rateStr, elapsedStr)
-	} else {
-		fmt.Fprintf(os.Stderr, "\r[%d digits] Nonce: %d | Rate: %s nonces/s | Elapsed: %s",
-			digits, nonce, rateStr, elapsedStr)
-	}
+	fmt.Fprintf(os.Stderr, "\r[%d digits] Nonce: %d (%.1f%% of expected) | Rate: %s nonces/s | Elapsed: %s", 
+		digits, nonce, percent, rateStr, elapsedStr)
 	os.Stderr.Sync() // Flush stderr to ensure it's visible
 }
 
@@ -446,7 +444,7 @@ func main() {
 				// Update progress bar every 100ms
 				now := time.Now()
 				if now.Sub(lastProgressUpdate) >= 100*time.Millisecond {
-					updateProgressBar(currentNonce-1, currentDigits, totalTested, startTime, maxNonceValue)
+					updateProgressBar(currentNonce-1, currentDigits, totalTested, startTime, *difficulty)
 					lastProgressUpdate = now
 				}
 
