@@ -1,5 +1,5 @@
 // ORIGINAL FILE - Reference only, not used in compilation
-// Source: https://github.com/luke-jr/bfgminer/blob/bfgminer/opencl/bfgminer-diakgcn.cl
+// Source: https://github.com/luke-jr/bfgminer/blob/bfgminer/opencl/diakgcn.cl
 // This file is kept for reference. The adapted version is used instead.
 
 // DiaKGCN 27-04-2012 - OpenCL kernel by Diapolo

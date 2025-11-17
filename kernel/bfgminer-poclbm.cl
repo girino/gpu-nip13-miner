@@ -1,5 +1,5 @@
 // ORIGINAL FILE - Reference only, not used in compilation
-// Source: https://github.com/luke-jr/bfgminer/blob/bfgminer/opencl/bfgminer-poclbm.cl
+// Source: https://github.com/luke-jr/bfgminer/blob/bfgminer/opencl/poclbm.cl
 // This file is kept for reference. The adapted version is used instead.
 
 // -ck modified kernel taken from Phoenix taken from poclbm, with aspects of

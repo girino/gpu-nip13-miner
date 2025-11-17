@@ -1,5 +1,5 @@
 // ORIGINAL FILE - Reference only, not used in compilation
-// Source: https://github.com/luke-jr/bfgminer/blob/bfgminer/opencl/bfgminer-phatk.cl
+// Source: https://github.com/luke-jr/bfgminer/blob/bfgminer/opencl/phatk.cl
 // This file is kept for reference. The adapted version is used instead.
 
 // This file is taken and modified from the public-domain poclbm project, and
