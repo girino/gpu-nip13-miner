@@ -20,9 +20,17 @@ function Download-OpenCLHeaders {
     $openclDir = "C:\OpenCL\include\CL"
     $openclIncludeDir = "C:\OpenCL\include"
     
+    # Check if directory exists AND contains headers
     if (Test-Path $openclDir) {
-        Write-Host "OpenCL headers directory already exists: $openclDir" -ForegroundColor Green
-        return $openclIncludeDir
+        $clHeaderFile = Join-Path $openclDir "cl.h"
+        if (Test-Path $clHeaderFile) {
+            Write-Host "OpenCL headers directory already exists with headers: $openclDir" -ForegroundColor Green
+            return $openclIncludeDir
+        } else {
+            Write-Host "OpenCL headers directory exists but is empty or missing headers" -ForegroundColor Yellow
+            Write-Host "Removing empty directory and re-downloading..." -ForegroundColor Gray
+            Remove-Item -Path $openclDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
     
     Write-Host "`nDownloading OpenCL headers from Khronos Group using git..." -ForegroundColor Cyan
