@@ -92,8 +92,8 @@ func listAllDevices() {
 
 	deviceNum := 0
 	for platformIdx, platform := range platforms {
-		platformName, _ := platform.Name()
-		platformVendor, _ := platform.Vendor()
+		platformName := platform.Name()
+		platformVendor := platform.Vendor()
 		fmt.Printf("Platform %d: %s (%s)\n", platformIdx, platformName, platformVendor)
 
 		devices, err := platform.GetDevices(cl.DeviceTypeAll)
@@ -103,10 +103,10 @@ func listAllDevices() {
 		}
 
 		for _, device := range devices {
-			deviceName, _ := device.Name()
-			deviceVendor, _ := device.Vendor()
+			deviceName := device.Name()
+			deviceVendor := device.Vendor()
 			deviceType := device.Type()
-			deviceVersion, _ := device.Version()
+			deviceVersion := device.Version()
 			maxComputeUnits := device.MaxComputeUnits()
 			maxWorkGroupSize := device.MaxWorkGroupSize()
 			globalMemSize := device.GlobalMemSize()
@@ -202,15 +202,13 @@ func main() {
 
 	// Select device
 	var selectedDevice *cl.Device
-	var selectedPlatformIdx int
 	if *deviceIndex >= 0 {
 		if *deviceIndex >= len(allDevices) {
 			log.Fatalf("Device index %d is out of range. Use -list-devices to see available devices (0-%d)", 
 				*deviceIndex, len(allDevices)-1)
 		}
 		selectedDevice = allDevices[*deviceIndex]
-		selectedPlatformIdx = devicePlatforms[*deviceIndex]
-		deviceName, _ := selectedDevice.Name()
+		deviceName := selectedDevice.Name()
 		vlog("Selected device [%d]: %s", *deviceIndex, deviceName)
 	} else {
 		// Default: prefer GPU devices, then use first available
@@ -219,8 +217,7 @@ func main() {
 			deviceType := device.Type()
 			if (deviceType & cl.DeviceTypeGPU) != 0 {
 				selectedDevice = device
-				selectedPlatformIdx = devicePlatforms[i]
-				deviceName, _ := device.Name()
+				deviceName := device.Name()
 				vlog("Auto-selected GPU device [%d]: %s", i, deviceName)
 				break
 			}
@@ -228,8 +225,7 @@ func main() {
 		if selectedDevice == nil {
 			// No GPU found, use first device
 			selectedDevice = allDevices[0]
-			selectedPlatformIdx = devicePlatforms[0]
-			deviceName, _ := selectedDevice.Name()
+			deviceName := selectedDevice.Name()
 			vlog("Auto-selected device [0]: %s", deviceName)
 		}
 	}

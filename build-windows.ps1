@@ -611,6 +611,12 @@ Write-Host "`nCompiling..." -ForegroundColor Cyan
 Write-Host "Note: OpenCL.dll in System32 will be used at runtime" -ForegroundColor Yellow
 
 go build -o gpu-nostr-pow.exe
+$buildExitCode = $LASTEXITCODE
+
+if ($buildExitCode -ne 0) {
+    Write-Host "`n[FAILED] Build failed with exit code $buildExitCode" -ForegroundColor Red
+    exit $buildExitCode
+}
 
 if (Test-Path "gpu-nostr-pow.exe") {
     Write-Host "`n[OK] Build successful: gpu-nostr-pow.exe" -ForegroundColor Green
@@ -618,7 +624,7 @@ if (Test-Path "gpu-nostr-pow.exe") {
     Write-Host "  Size: $([math]::Round($fileInfo.Length / 1MB, 2)) MB" -ForegroundColor Gray
     Write-Host "  Location: $($fileInfo.FullName)" -ForegroundColor Gray
 } else {
-    Write-Host "`n[FAILED] Build failed" -ForegroundColor Red
+    Write-Host "`n[FAILED] Build completed but executable not found" -ForegroundColor Red
     exit 1
 }
 
