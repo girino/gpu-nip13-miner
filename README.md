@@ -16,20 +16,16 @@ A high-performance GPU-accelerated miner for NIP-13 proof-of-work (PoW) on Nostr
 
 ## Kernel Implementations
 
-The miner includes multiple OpenCL kernel implementations, each optimized for different hardware:
+The miner includes two OpenCL kernel implementations, each optimized for different hardware:
 
 - **default**: Our original implementation, optimized for CPUs and Intel GPUs
 - **ckolivas**: Adapted from sgminer's ckolivas kernel, optimized for NVIDIA and AMD GPUs
-- **phatk**: Adapted from bfgminer's phatk kernel
-- **diakgcn**: Adapted from bfgminer's diakgcn kernel
-- **diablo**: Adapted from bfgminer's diablo kernel
-- **poclbm**: Adapted from bfgminer's poclbm kernel
 
 The `-kernel auto` option (default) automatically selects the best kernel based on your device:
 - CPUs and Intel GPUs → `default`
 - NVIDIA, AMD, and other GPUs → `ckolivas`
 
-You can manually select a kernel using the `-kernel` flag. Use `-benchmark` to test all kernels and find the best one for your hardware.
+You can manually select a kernel using the `-kernel` flag. Use `-benchmark` to test both kernels and find the best one for your hardware.
 
 All kernels are located in the `kernel/` directory:
 - Original kernels are kept for reference (not used in compilation)
@@ -169,7 +165,7 @@ Choose a specific kernel implementation:
 ./gpu-nostr-pow -kernel ckolivas -difficulty 16
 ```
 
-Available kernels: `default`, `ckolivas`, `phatk`, `diakgcn`, `diablo`, `poclbm`, or `auto` (default, selects based on device).
+Available kernels: `default`, `ckolivas`, or `auto` (default, selects based on device).
 
 ### Verbose Logging
 
@@ -188,7 +184,7 @@ Test all kernels and batch sizes to find the optimal configuration:
 ```
 
 This will:
-- Test all 6 kernel implementations
+- Test both kernel implementations (default and ckolivas)
 - For each kernel, test batch sizes from 1,000 (10^3) to 10,000,000,000 (10^10)
 - For CPU devices, batch size is limited to 10,000 (10^4) to avoid segfaults
 - Run each combination 3 times (5 seconds each) with different events
@@ -231,7 +227,7 @@ This will:
 
 - `-difficulty <n>`: Number of leading zero bits required (default: 16)
 - `-batch-size <n>`: Batch size as power of 10 (4=10000, 5=100000, etc.). Use -1 for auto-detect (default: -1). Maximum: 10 (10^10)
-- `-kernel <name>`: Kernel implementation to use: `auto` (default, selects based on device), `default`, `ckolivas`, `phatk`, `diakgcn`, `diablo`, or `poclbm`
+- `-kernel <name>`: Kernel implementation to use: `auto` (default, selects based on device), `default`, or `ckolivas`
 - `-list-devices`, `-l`: List available OpenCL devices and exit
 - `-device <n>`, `-d <n>`: Select device by index from list
 - `-benchmark`: Test all kernels and batch sizes to find optimal configuration
@@ -254,14 +250,12 @@ The miner dynamically adjusts the number of digits in the nonce based on the dif
 
 All OpenCL kernel files are organized in the `kernel/` directory:
 
-- **Original kernels**: Reference files from upstream projects (sgminer, bfgminer)
+- **Original kernels**: Reference files from upstream projects
   - `ckolivas.cl` - Original from sgminer
-  - `bfgminer-*.cl` - Originals from bfgminer (phatk, diakgcn, diablo, poclbm)
   
 - **Adapted kernels**: Modified versions for NIP-13 mining (used in compilation)
   - `mine.cl` - Our original implementation
   - `ckolivas-adapted.cl` - Adapted from sgminer's ckolivas
-  - `bfgminer-*-adapted.cl` - Adapted from bfgminer kernels
 
 Each adapted kernel includes comments indicating:
 - That it was modified from the original

@@ -77,23 +77,10 @@ func getKernelSource(kernelType string, device *cl.Device) (string, string, erro
 	case "default":
 		return mineKernelSource, "mine_nonce", nil
 	case "ckolivas":
-		// Note: ckolivas kernel is experimental and may not work correctly
-		// It's based on sgminer's Scrypt implementation, adapted for NIP-13
+		// ckolivas kernel adapted from sgminer's Scrypt implementation for NIP-13
 		return ckolivasKernelSource, "mine_nonce", nil
-	case "phatk":
-		// bfgminer phatk kernel adapted for NIP-13 mining
-		return bfgminerPhatkKernelSource, "mine_nonce", nil
-	case "diakgcn":
-		// bfgminer diakgcn kernel adapted for NIP-13 mining
-		return bfgminerDiakgcnKernelSource, "mine_nonce", nil
-	case "diablo":
-		// bfgminer diablo kernel adapted for NIP-13 mining
-		return bfgminerDiabloKernelSource, "mine_nonce", nil
-	case "poclbm":
-		// bfgminer poclbm kernel adapted for NIP-13 mining
-		return bfgminerPoclbmKernelSource, "mine_nonce", nil
 	default:
-		return "", "", fmt.Errorf("unknown kernel type: %s (use 'default', 'ckolivas', 'phatk', 'diakgcn', 'diablo', 'poclbm', or 'auto')", kernelType)
+		return "", "", fmt.Errorf("unknown kernel type: %s (use 'default', 'ckolivas', or 'auto')", kernelType)
 	}
 }
 
@@ -421,7 +408,7 @@ func runBenchmark(difficulty int, deviceIndex int, kernelType string) {
 	fmt.Fprintf(os.Stderr, "\n")
 
 	// Test all kernels
-	kernels := []string{"default", "ckolivas", "phatk", "diakgcn", "diablo", "poclbm"}
+	kernels := []string{"default", "ckolivas"}
 
 	type kernelBenchmarkResult struct {
 		kernelName     string
