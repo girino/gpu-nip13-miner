@@ -201,6 +201,299 @@ func listAllDevices() {
 	os.Exit(0)
 }
 
+// runBenchmark tests different batch sizes to find the optimal one
+func runBenchmark(difficulty int, deviceIndex int) {
+	fmt.Fprintf(os.Stderr, "Running benchmark to find optimal batch size...\n")
+	fmt.Fprintf(os.Stderr, "This will test each batch size for at least 10 seconds.\n\n")
+
+	// Get platforms
+	platforms, err := cl.GetPlatforms()
+	if err != nil {
+		log.Fatalf("Failed to get platforms: %v", err)
+	}
+
+	if len(platforms) == 0 {
+		log.Fatal("No OpenCL platforms found")
+	}
+
+	// Collect all devices
+	var allDevices []*cl.Device
+	var devicePlatforms []int
+	for platformIdx, platform := range platforms {
+		devices, err := platform.GetDevices(cl.DeviceTypeAll)
+		if err != nil {
+			continue
+		}
+		for _, device := range devices {
+			allDevices = append(allDevices, device)
+			devicePlatforms = append(devicePlatforms, platformIdx)
+		}
+	}
+
+	if len(allDevices) == 0 {
+		log.Fatal("No OpenCL devices found")
+	}
+
+	// Select device
+	var selectedDevice *cl.Device
+	if deviceIndex >= 0 {
+		if deviceIndex >= len(allDevices) {
+			log.Fatalf("Device index %d is out of range (0-%d)", deviceIndex, len(allDevices)-1)
+		}
+		selectedDevice = allDevices[deviceIndex]
+	} else {
+		// Auto-select GPU or first device
+		selectedDevice = nil
+		for _, device := range allDevices {
+			deviceType := device.Type()
+			if (deviceType & cl.DeviceTypeGPU) != 0 {
+				selectedDevice = device
+				break
+			}
+		}
+		if selectedDevice == nil {
+			selectedDevice = allDevices[0]
+		}
+	}
+
+	deviceName := selectedDevice.Name()
+	fmt.Fprintf(os.Stderr, "Testing on device: %s\n\n", deviceName)
+
+	// Create a dummy event for benchmarking
+	testEvent := nostr.Event{
+		Kind:      1,
+		Content:   "Benchmark test event",
+		CreatedAt: nostr.Timestamp(time.Now().Unix()),
+		Tags:      nostr.Tags{},
+	}
+
+	// Test batch sizes from 3 to 6 (1000 to 1000000)
+	type benchmarkResult struct {
+		batchSizePower int
+		batchSize      int
+		rate           float64
+	}
+
+	var results []benchmarkResult
+	maxWorkGroupSize := selectedDevice.MaxWorkGroupSize()
+
+	for power := 3; power <= 6; power++ {
+		batchSize := int(math.Pow(10, float64(power)))
+
+		// Skip if batch size exceeds work group limits
+		if batchSize > maxWorkGroupSize*100 {
+			fmt.Fprintf(os.Stderr, "Skipping batch size 10^%d (%d) - exceeds work group limit\n", power, batchSize)
+			continue
+		}
+
+		fmt.Fprintf(os.Stderr, "Testing batch size 10^%d (%d)... ", power, batchSize)
+
+		// Run benchmark for this batch size
+		rate := benchmarkBatchSize(selectedDevice, &testEvent, difficulty, batchSize)
+		results = append(results, benchmarkResult{
+			batchSizePower: power,
+			batchSize:      batchSize,
+			rate:           rate,
+		})
+
+		fmt.Fprintf(os.Stderr, "%.2fM nonces/s\n", rate/1000000)
+	}
+
+	// Find best batch size
+	if len(results) == 0 {
+		log.Fatal("No valid batch sizes to test")
+	}
+
+	best := results[0]
+	for _, r := range results {
+		if r.rate > best.rate {
+			best = r
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "\n")
+	fmt.Fprintf(os.Stderr, "=== Benchmark Results ===\n")
+	for _, r := range results {
+		marker := " "
+		if r.batchSizePower == best.batchSizePower {
+			marker = "*"
+		}
+		fmt.Fprintf(os.Stderr, "%s Batch size 10^%d (%d): %.2fM nonces/s\n",
+			marker, r.batchSizePower, r.batchSize, r.rate/1000000)
+	}
+	fmt.Fprintf(os.Stderr, "\n")
+	fmt.Fprintf(os.Stderr, "Recommended batch size: 10^%d (%d) with %.2fM nonces/s\n",
+		best.batchSizePower, best.batchSize, best.rate/1000000)
+	fmt.Fprintf(os.Stderr, "Use: -batch-size %d\n", best.batchSizePower)
+}
+
+// benchmarkBatchSize runs a benchmark for a specific batch size
+// Returns the nonce rate in nonces per second
+func benchmarkBatchSize(device *cl.Device, event *nostr.Event, difficulty int, batchSize int) float64 {
+	// Create context
+	context, err := cl.CreateContext([]*cl.Device{device})
+	if err != nil {
+		log.Fatalf("Failed to create context: %v", err)
+	}
+	defer context.Release()
+
+	// Create command queue
+	queue, err := context.CreateCommandQueue(device, 0)
+	if err != nil {
+		log.Fatalf("Failed to create command queue: %v", err)
+	}
+	defer queue.Release()
+
+	// Create program
+	program, err := context.CreateProgramWithSource([]string{mineKernelSource})
+	if err != nil {
+		log.Fatalf("Failed to create program: %v", err)
+	}
+	defer program.Release()
+
+	// Build program
+	err = program.BuildProgram(nil, "")
+	if err != nil {
+		log.Fatalf("Failed to build program: %v", err)
+	}
+
+	// Create kernel
+	kernel, err := program.CreateKernel("mine_nonce")
+	if err != nil {
+		log.Fatalf("Failed to create kernel: %v", err)
+	}
+	defer kernel.Release()
+
+	// Prepare event with placeholder nonce
+	testEvent := *event
+	noncePlaceholder := "0000000000" // 10 digits
+	testEvent.Tags = append(testEvent.Tags, nostr.Tag{"nonce", noncePlaceholder, strconv.Itoa(difficulty)})
+
+	// Serialize event
+	serialized := testEvent.Serialize()
+	serializedLength := len(serialized)
+
+	// Find nonce position
+	noncePlaceholderBytes := []byte(noncePlaceholder)
+	nonceOffset := bytes.Index(serialized, noncePlaceholderBytes)
+	if nonceOffset == -1 {
+		log.Fatal("Could not find nonce placeholder in serialized event")
+	}
+
+	// Create input buffer
+	inputBuffer, err := context.CreateEmptyBuffer(cl.MemReadOnly, serializedLength)
+	if err != nil {
+		log.Fatalf("Failed to create input buffer: %v", err)
+	}
+	defer inputBuffer.Release()
+
+	// Write serialized event to buffer
+	_, err = queue.EnqueueWriteBuffer(inputBuffer, true, 0, serializedLength, unsafe.Pointer(&serialized[0]), nil)
+	if err != nil {
+		log.Fatalf("Failed to write input buffer: %v", err)
+	}
+
+	// Create results buffer
+	resultSize := 41
+	resultsBufferSize := batchSize * resultSize
+	maxResultsBufferSize := 100 * 1024 * 1024
+	if resultsBufferSize > maxResultsBufferSize {
+		resultsBufferSize = maxResultsBufferSize
+		batchSize = resultsBufferSize / resultSize
+	}
+
+	resultsBuffer, err := context.CreateEmptyBuffer(cl.MemWriteOnly, resultsBufferSize)
+	if err != nil {
+		log.Fatalf("Failed to create results buffer: %v", err)
+	}
+	defer resultsBuffer.Release()
+
+	// Set kernel arguments (will be reused)
+	err = kernel.SetArgBuffer(0, inputBuffer)
+	if err != nil {
+		log.Fatalf("Failed to set kernel arg 0: %v", err)
+	}
+
+	err = kernel.SetArgInt32(1, int32(serializedLength))
+	if err != nil {
+		log.Fatalf("Failed to set kernel arg 1: %v", err)
+	}
+
+	err = kernel.SetArgInt32(2, int32(nonceOffset))
+	if err != nil {
+		log.Fatalf("Failed to set kernel arg 2: %v", err)
+	}
+
+	err = kernel.SetArgInt32(3, int32(difficulty))
+	if err != nil {
+		log.Fatalf("Failed to set kernel arg 3: %v", err)
+	}
+
+	err = kernel.SetArgBuffer(6, resultsBuffer)
+	if err != nil {
+		log.Fatalf("Failed to set kernel arg 6: %v", err)
+	}
+
+	err = kernel.SetArgInt32(7, int32(10)) // 10 digits
+	if err != nil {
+		log.Fatalf("Failed to set kernel arg 7: %v", err)
+	}
+
+	// Benchmark for at least 10 seconds
+	benchmarkDuration := 10 * time.Second
+	startTime := time.Now()
+	totalTested := int64(0)
+	currentNonce := int64(1000000000) // Start at 10 digits
+
+	results := make([]byte, resultsBufferSize)
+
+	for time.Since(startTime) < benchmarkDuration {
+		// Set nonce arguments
+		baseNonceLow := uint32(currentNonce & 0xFFFFFFFF)
+		baseNonceHigh := uint32((currentNonce >> 32) & 0xFFFFFFFF)
+		err = kernel.SetArgInt32(4, int32(baseNonceLow))
+		if err != nil {
+			log.Fatalf("Failed to set kernel arg 4: %v", err)
+		}
+
+		err = kernel.SetArgInt32(5, int32(baseNonceHigh))
+		if err != nil {
+			log.Fatalf("Failed to set kernel arg 5: %v", err)
+		}
+
+		// Execute kernel
+		remaining := batchSize
+		globalSize := []int{remaining}
+		_, err = queue.EnqueueNDRangeKernel(kernel, nil, globalSize, nil, nil)
+		if err != nil {
+			log.Fatalf("Failed to enqueue kernel: %v", err)
+		}
+
+		// Read results
+		readSize := remaining * resultSize
+		if readSize > resultsBufferSize {
+			readSize = resultsBufferSize
+			remaining = resultsBufferSize / resultSize
+		}
+		_, err = queue.EnqueueReadBuffer(resultsBuffer, true, 0, readSize, unsafe.Pointer(&results[0]), nil)
+		if err != nil {
+			log.Fatalf("Failed to read results buffer: %v", err)
+		}
+
+		totalTested += int64(remaining)
+		currentNonce += int64(remaining)
+
+		// Check if we should continue
+		if time.Since(startTime) >= benchmarkDuration {
+			break
+		}
+	}
+
+	elapsed := time.Since(startTime)
+	rate := float64(totalTested) / elapsed.Seconds()
+	return rate
+}
+
 func main() {
 	// Parse CLI arguments
 	difficulty := flag.Int("difficulty", 16, "Number of leading zero bits required (NIP-13)")
@@ -209,6 +502,7 @@ func main() {
 	listDevicesShort := flag.Bool("l", false, "List available OpenCL devices and exit (short)")
 	deviceIndex := flag.Int("device", -1, "Select device by index from list (use -list-devices to see available devices)")
 	deviceIndexShort := flag.Int("d", -1, "Select device by index from list (short)")
+	benchmark := flag.Bool("benchmark", false, "Benchmark different batch sizes to find optimal value")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
 	flag.Parse()
 
@@ -241,6 +535,13 @@ func main() {
 	// List devices and exit if requested
 	if *listDevices {
 		listAllDevices()
+		os.Exit(0)
+	}
+
+	// Run benchmark if requested
+	if *benchmark {
+		runBenchmark(*difficulty, *deviceIndex)
+		os.Exit(0)
 	}
 
 	// Collect all devices from all platforms
