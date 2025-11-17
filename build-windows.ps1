@@ -18,12 +18,20 @@ Write-Host "Found: $goVersion" -ForegroundColor Green
 # Check for OpenCL headers
 $openclHeaderPath = $null
 $possibleHeaderPaths = @(
+    # Intel OpenCL SDK
+    "C:\Program Files (x86)\Intel\OpenCL SDK\*\include\CL",
+    "C:\Program Files\Intel\OpenCL SDK\*\include\CL",
+    "C:\Program Files (x86)\IntelSWTools\OpenCL\sdk\include\CL",
+    "C:\Program Files\IntelSWTools\OpenCL\sdk\include\CL",
+    # NVIDIA CUDA (for completeness, but not required)
     "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\*\include\CL",
     "C:\Program Files (x86)\NVIDIA GPU Computing Toolkit\CUDA\*\include\CL",
+    # Windows SDK
     "C:\Program Files\Microsoft SDKs\Windows\*\Include\um\CL",
     "C:\Program Files (x86)\Microsoft SDKs\Windows\*\Include\um\CL",
     "C:\Program Files\Windows Kits\*\Include\*\um\CL",
     "C:\Program Files (x86)\Windows Kits\*\Include\*\um\CL",
+    # Generic OpenCL installations
     "C:\OpenCL\include\CL",
     "C:\Program Files\OpenCL\include\CL"
 )
@@ -40,16 +48,27 @@ foreach ($pattern in $possibleHeaderPaths) {
 
 if (-not $openclHeaderPath) {
     Write-Host "Warning: OpenCL headers not found in standard locations" -ForegroundColor Yellow
-    Write-Host "`nTrying to find CUDA installation..." -ForegroundColor Cyan
+    Write-Host "`nTrying environment variables..." -ForegroundColor Cyan
     
-    # Try to find CUDA via environment variable
-    $cudaPath = $env:CUDA_PATH
-    if ($cudaPath -and (Test-Path "$cudaPath\include\CL")) {
-        $openclHeaderPath = "$cudaPath\include"
-        Write-Host "Found OpenCL headers via CUDA_PATH: $openclHeaderPath" -ForegroundColor Green
-    } else {
+    # Try Intel OpenCL SDK environment variable
+    $intelOCLPath = $env:INTELOCLSDKROOT
+    if ($intelOCLPath -and (Test-Path "$intelOCLPath\include\CL")) {
+        $openclHeaderPath = "$intelOCLPath\include"
+        Write-Host "Found OpenCL headers via INTELOCLSDKROOT: $openclHeaderPath" -ForegroundColor Green
+    }
+    
+    # Try CUDA via environment variable (for NVIDIA systems)
+    if (-not $openclHeaderPath) {
+        $cudaPath = $env:CUDA_PATH
+        if ($cudaPath -and (Test-Path "$cudaPath\include\CL")) {
+            $openclHeaderPath = "$cudaPath\include"
+            Write-Host "Found OpenCL headers via CUDA_PATH: $openclHeaderPath" -ForegroundColor Green
+        }
+    }
+    
+    if (-not $openclHeaderPath) {
         Write-Host "`nOpenCL headers not found. Options:" -ForegroundColor Yellow
-        Write-Host "1. Install CUDA Toolkit (recommended): https://developer.nvidia.com/cuda-downloads" -ForegroundColor White
+        Write-Host "1. Install Intel OpenCL SDK: https://www.intel.com/content/www/us/en/developer/tools/opencl-sdk/overview.html" -ForegroundColor White
         Write-Host "2. Install Windows SDK (includes OpenCL headers)" -ForegroundColor White
         Write-Host "3. Download OpenCL headers manually and place in C:\OpenCL\include\CL" -ForegroundColor White
         exit 1
@@ -59,12 +78,20 @@ if (-not $openclHeaderPath) {
 # Check for OpenCL library
 $openclLibPath = $null
 $possibleLibPaths = @(
+    # Intel OpenCL SDK
+    "C:\Program Files (x86)\Intel\OpenCL SDK\*\lib\x64\OpenCL.lib",
+    "C:\Program Files\Intel\OpenCL SDK\*\lib\x64\OpenCL.lib",
+    "C:\Program Files (x86)\IntelSWTools\OpenCL\sdk\lib\x64\OpenCL.lib",
+    "C:\Program Files\IntelSWTools\OpenCL\sdk\lib\x64\OpenCL.lib",
+    # NVIDIA CUDA (for completeness)
     "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\*\lib\x64\OpenCL.lib",
     "C:\Program Files (x86)\NVIDIA GPU Computing Toolkit\CUDA\*\lib\x64\OpenCL.lib",
+    # Windows SDK
     "C:\Program Files\Microsoft SDKs\Windows\*\Lib\x64\OpenCL.lib",
     "C:\Program Files (x86)\Microsoft SDKs\Windows\*\Lib\x64\OpenCL.lib",
     "C:\Program Files\Windows Kits\*\Lib\*\um\x64\OpenCL.lib",
     "C:\Program Files (x86)\Windows Kits\*\Lib\*\um\x64\OpenCL.lib",
+    # Generic OpenCL installations
     "C:\OpenCL\lib\x64\OpenCL.lib",
     "C:\Program Files\OpenCL\lib\x64\OpenCL.lib"
 )
@@ -79,12 +106,22 @@ foreach ($pattern in $possibleLibPaths) {
     }
 }
 
-# If library not found, check CUDA_PATH
+# If library not found, check environment variables
 if (-not $openclLibPath) {
-    $cudaPath = $env:CUDA_PATH
-    if ($cudaPath -and (Test-Path "$cudaPath\lib\x64\OpenCL.lib")) {
-        $openclLibPath = "$cudaPath\lib\x64"
-        Write-Host "Found OpenCL library via CUDA_PATH: $openclLibPath" -ForegroundColor Green
+    # Try Intel OpenCL SDK
+    $intelOCLPath = $env:INTELOCLSDKROOT
+    if ($intelOCLPath -and (Test-Path "$intelOCLPath\lib\x64\OpenCL.lib")) {
+        $openclLibPath = "$intelOCLPath\lib\x64"
+        Write-Host "Found OpenCL library via INTELOCLSDKROOT: $openclLibPath" -ForegroundColor Green
+    }
+    
+    # Try CUDA_PATH (for NVIDIA systems)
+    if (-not $openclLibPath) {
+        $cudaPath = $env:CUDA_PATH
+        if ($cudaPath -and (Test-Path "$cudaPath\lib\x64\OpenCL.lib")) {
+            $openclLibPath = "$cudaPath\lib\x64"
+            Write-Host "Found OpenCL library via CUDA_PATH: $openclLibPath" -ForegroundColor Green
+        }
     }
 }
 
