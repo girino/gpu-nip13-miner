@@ -763,7 +763,7 @@ func testAllKernels(difficulty int, deviceIndex int) {
 	// Test each kernel
 	for _, kernelType := range kernels {
 		fmt.Fprintf(os.Stderr, "Testing kernel: %s\n", kernelType)
-		
+
 		correct := 0
 		wrong := 0
 		errors := 0
@@ -771,7 +771,7 @@ func testAllKernels(difficulty int, deviceIndex int) {
 		for testNum := 0; testNum < 10; testNum++ {
 			// Create a random event for each test
 			testEvent := createRealisticBenchmarkEvent()
-			
+
 			// Test the kernel
 			valid, nonce, err := testSingleKernel(selectedDevice, &testEvent, difficulty, kernelType)
 			if err != nil {

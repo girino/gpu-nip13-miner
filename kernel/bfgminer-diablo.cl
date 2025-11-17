@@ -1,3 +1,7 @@
+// ORIGINAL FILE - Reference only, not used in compilation
+// Source: https://github.com/luke-jr/bfgminer/blob/bfgminer/opencl/bfgminer-diablo.cl
+// This file is kept for reference. The adapted version is used instead.
+
 /*
  *  DiabloMiner - OpenCL miner for BitCoin
  *  Copyright (C) 2012, 2013 Con Kolivas <kernel@kolivas.org>

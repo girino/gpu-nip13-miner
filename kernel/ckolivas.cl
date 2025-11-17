@@ -1,8 +1,17 @@
 /*-
  * Copyright 2009 Colin Percival, 2011 ArtForz, 2011 pooler, 2012 mtrlt,
  * 2012-2013 Con Kolivas.
- * Adapted for NIP-13 mining by using the optimized SHA256 implementation
- * from sgminer's ckolivas kernel.
+ * 
+ * MODIFIED: This file has been adapted for NIP-13 mining from the original
+ * sgminer ckolivas kernel. The original implementation was for Scrypt mining
+ * and has been modified to work with NIP-13 proof-of-work (SHA256 of JSON events).
+ * 
+ * Original source: https://github.com/sgminer-dev/sgminer/blob/master/kernel/ckolivas.cl
+ * 
+ * Changes made:
+ * - Adapted SHA256 implementation for NIP-13 mining
+ * - Changed kernel interface to mine_nonce() for NIP-13 compatibility
+ * - Maintains optimized SHA256 operations from original ckolivas implementation
  */
 
 // SHA256 constants from ckolivas

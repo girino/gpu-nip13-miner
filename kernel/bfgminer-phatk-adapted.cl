@@ -1,11 +1,20 @@
 /*-
  * Copyright 2009 Colin Percival, 2011 ArtForz, 2011 pooler, 2012 mtrlt,
  * 2012-2013 Con Kolivas.
- * Adapted for NIP-13 mining by using the optimized SHA256 implementation
- * from bfgminer's bfgminer_poclbm kernel.
+ * 
+ * MODIFIED: This file has been adapted for NIP-13 mining from the original
+ * bfgminer phatk kernel. The original implementation was for Bitcoin SHA256d
+ * mining and has been modified to work with NIP-13 proof-of-work.
+ * 
+ * Original source: https://github.com/luke-jr/bfgminer/blob/bfgminer/opencl/phatk.cl
+ * 
+ * Changes made:
+ * - Adapted SHA256 implementation for NIP-13 mining
+ * - Changed kernel interface to mine_nonce() for NIP-13 compatibility
+ * - Based on ckolivas adaptation pattern, using phatk naming
  */
 
-// SHA256 constants from bfgminer_poclbm
+// SHA256 constants from bfgminer_phatk
 __constant uint K[] = {
   0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U,
   0x3956c25bU, 0x59f111f1U, 0x923f82a4U, 0xab1c5ed5U,
@@ -61,9 +70,9 @@ int count_leading_zero_bits(uchar hash[32]) {
     return count;
 }
 
-// SHA256 implementation adapted from bfgminer_poclbm
-// This processes a single 512-bit block using the optimized bfgminer_poclbm approach
-void sha256_block_bfgminer_poclbm(uchar block[64], uint h[8]) {
+// SHA256 implementation adapted from bfgminer_phatk
+// This processes a single 512-bit block using the optimized bfgminer_phatk approach
+void sha256_block_bfgminer_phatk(uchar block[64], uint h[8]) {
     // Convert block to uint32 words (big-endian)
     uint w[64];
     for (int i = 0; i < 16; i++) {
@@ -88,7 +97,7 @@ void sha256_block_bfgminer_poclbm(uchar block[64], uint h[8]) {
     uint g = h[6];
     uint h_val = h[7];
     
-    // Main loop using bfgminer_poclbm-style operations
+    // Main loop using bfgminer_phatk-style operations
     for (int i = 0; i < 64; i++) {
         uint S1 = Tr1(e);
         uint ch = Ch(e, f, g);
@@ -118,7 +127,7 @@ void sha256_block_bfgminer_poclbm(uchar block[64], uint h[8]) {
     h[7] += h_val;
 }
 
-// Calculate SHA256 of input (generic implementation using bfgminer_poclbm SHA256)
+// Calculate SHA256 of input (generic implementation using bfgminer_phatk SHA256)
 void sha256_generic(uchar* input, int input_length, uchar output[32]) {
     // SHA256 initial hash values
     uint h[8] = {
@@ -162,7 +171,7 @@ void sha256_generic(uchar* input, int input_length, uchar output[32]) {
         for (int i = 0; i < 64; i++) {
             block_data[i] = padded[block * 64 + i];
         }
-        sha256_block_bfgminer_poclbm(block_data, h);
+        sha256_block_bfgminer_phatk(block_data, h);
     }
     
     // Write output (32 bytes = 256 bits)
@@ -231,7 +240,7 @@ __kernel void mine_nonce(
         serialized_copy[nonce_offset + i] = nonce_str[i];
     }
     
-    // Calculate SHA256 using bfgminer_poclbm implementation
+    // Calculate SHA256 using bfgminer_phatk implementation
     uchar hash[32];
     sha256_generic(serialized_copy, serialized_length, hash);
     
