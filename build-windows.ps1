@@ -326,17 +326,63 @@ $cgoCflags = "-DCL_TARGET_OPENCL_VERSION=200 -DCL_DEPTH_STENCIL=0x10FF -DCL_UNOR
 if ($openclHeaderPath) {
     # Verify that CL/cl.h exists at the expected location
     $clHeaderPath = Join-Path $openclHeaderPath "CL\cl.h"
+    $headerFound = $false
+    
     if (Test-Path $clHeaderPath) {
-        Write-Host "Verified OpenCL header exists: $clHeaderPath" -ForegroundColor Gray
+        Write-Host "Verified OpenCL header exists: $clHeaderPath" -ForegroundColor Green
+        $headerFound = $true
     } else {
         Write-Host "Warning: OpenCL header not found at expected location: $clHeaderPath" -ForegroundColor Yellow
-        Write-Host "Checking directory contents..." -ForegroundColor Gray
-        if (Test-Path $openclHeaderPath) {
-            Get-ChildItem $openclHeaderPath -ErrorAction SilentlyContinue | Select-Object -First 5 | ForEach-Object {
-                Write-Host "  Found: $($_.Name)" -ForegroundColor Gray
+        Write-Host "Checking directory structure..." -ForegroundColor Gray
+        
+        # Check if there's a nested CL directory (common mistake)
+        $nestedCL = Join-Path $openclHeaderPath "CL\CL\cl.h"
+        if (Test-Path $nestedCL) {
+            Write-Host "Found headers in nested CL directory: $nestedCL" -ForegroundColor Yellow
+            Write-Host "Fixing path to use nested directory..." -ForegroundColor Gray
+            $openclHeaderPath = Join-Path $openclHeaderPath "CL"
+            $clHeaderPath = Join-Path $openclHeaderPath "cl.h"
+            if (Test-Path $clHeaderPath) {
+                Write-Host "Verified OpenCL header exists: $clHeaderPath" -ForegroundColor Green
+                $headerFound = $true
+            }
+        } else {
+            # List directory contents for debugging
+            if (Test-Path $openclHeaderPath) {
+                Write-Host "Contents of $openclHeaderPath:" -ForegroundColor Gray
+                $items = Get-ChildItem $openclHeaderPath -ErrorAction SilentlyContinue
+                if ($items) {
+                    foreach ($item in $items | Select-Object -First 10) {
+                        $type = if ($item.PSIsContainer) { "DIR" } else { "FILE" }
+                        Write-Host "  [$type] $($item.Name)" -ForegroundColor Gray
+                    }
+                } else {
+                    Write-Host "  (directory is empty)" -ForegroundColor Yellow
+                }
+                
+                # Check if cl.h is directly in the include path
+                $directCL = Join-Path $openclHeaderPath "cl.h"
+                if (Test-Path $directCL) {
+                    Write-Host "Found cl.h directly in include path (wrong structure)" -ForegroundColor Yellow
+                    Write-Host "Headers should be in: $openclHeaderPath\CL\cl.h" -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "Directory does not exist: $openclHeaderPath" -ForegroundColor Red
             }
         }
     }
+    
+    if (-not $headerFound) {
+        Write-Host "`nERROR: OpenCL headers not found in correct location!" -ForegroundColor Red
+        Write-Host "Expected structure: $openclHeaderPath\CL\cl.h" -ForegroundColor Yellow
+        Write-Host "`nPlease ensure headers are in the correct location:" -ForegroundColor Yellow
+        Write-Host "1. Headers should be in: C:\OpenCL\include\CL\" -ForegroundColor White
+        Write-Host "2. Files should include: cl.h, cl_platform.h, cl_ext.h, etc." -ForegroundColor White
+        Write-Host "3. Download from: https://github.com/KhronosGroup/OpenCL-Headers" -ForegroundColor White
+        Write-Host "   Copy the CL folder contents to: C:\OpenCL\include\CL\" -ForegroundColor White
+        exit 1
+    }
+    
     # Convert Windows path to MinGW format (C:\path -> /c/path)
     # MinGW GCC prefers Unix-style paths
     $drive = $openclHeaderPath.Substring(0, 1).ToLower()
