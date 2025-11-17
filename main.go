@@ -38,12 +38,10 @@ func updateProgressBar(nonce int64, digits int, totalTested int64, startTime tim
 	expectedIterations := math.Pow(2, float64(difficulty))
 
 	// Calculate percentage relative to expected iterations
+	// Allow percentage to exceed 100% to show how much beyond expected we are
 	var percent float64
 	if expectedIterations > 0 {
 		percent = float64(totalTested) / expectedIterations * 100
-		if percent > 100 {
-			percent = 100
-		}
 	}
 
 	// Format rate
