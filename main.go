@@ -58,7 +58,7 @@ func validateNonce(candidateNonce uint64, event *nostr.Event, difficulty int, nu
 
 	// Recalculate event ID by serializing and hashing (CPU-side validation)
 	eventIDHex := testEvent.GetID()
-	
+
 	// Set the event ID (required for CommittedDifficulty to work correctly)
 	testEvent.ID = eventIDHex
 
@@ -75,7 +75,7 @@ func validateNonce(candidateNonce uint64, event *nostr.Event, difficulty int, nu
 	// If tag difficulty > actual difficulty, it returns 0
 	actualHashDifficulty := nip13.Difficulty(eventIDHex)
 	committedDiff := nip13.CommittedDifficulty(&testEvent)
-	
+
 	// CommittedDifficulty should return the minimum of tag difficulty and actual difficulty
 	// But if tag difficulty > actual difficulty, it returns 0
 	// So we need to check if the actual difficulty meets our requirement
@@ -84,7 +84,7 @@ func validateNonce(candidateNonce uint64, event *nostr.Event, difficulty int, nu
 			actualHashDifficulty, difficulty, candidateNonce)
 		return false
 	}
-	
+
 	// If committedDiff is 0, it means tag difficulty > actual difficulty
 	// In that case, we should still accept if actual difficulty >= required difficulty
 	if committedDiff == 0 && actualHashDifficulty >= difficulty {
@@ -93,7 +93,7 @@ func validateNonce(candidateNonce uint64, event *nostr.Event, difficulty int, nu
 		// For now, just accept it
 		return true
 	}
-	
+
 	if committedDiff != difficulty && committedDiff != 0 {
 		// Debug: check what tags we have
 		var nonceTagFound bool
