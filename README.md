@@ -259,7 +259,11 @@ Each adapted kernel includes comments indicating:
 
 ## License
 
-[Add your license here]
+This project is licensed under Girino's Anarchist License (GAL).
+
+Copyright (c) 2025
+
+See [LICENSE](LICENSE) file for details, or visit https://license.girino.org
 
 ## Contributing
 

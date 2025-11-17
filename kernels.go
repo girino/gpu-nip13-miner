@@ -1,3 +1,7 @@
+// Copyright (c) 2025
+// Licensed under Girino's Anarchist License (GAL)
+// See LICENSE file or https://license.girino.org for details
+
 package main
 
 import _ "embed"

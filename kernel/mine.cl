@@ -1,3 +1,7 @@
+// Copyright (c) 2025
+// Licensed under Girino's Anarchist License (GAL)
+// See LICENSE file or https://license.girino.org for details
+//
 // NIP-13 Mining Kernel
 // Mines nonces in parallel to find event IDs with required leading zero bits
 
