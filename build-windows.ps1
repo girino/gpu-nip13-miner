@@ -449,13 +449,114 @@ if ($openclHeaderPath) {
 $env:CGO_CFLAGS = $cgoCflags
 
 # CGO LDFLAGS
-# On Windows, OpenCL.dll is in System32, so we can link directly with -lOpenCL
-# If OpenCL.lib was found, include its path. Otherwise, the linker will find OpenCL.dll automatically
+# MinGW needs an import library (.a) to link with Windows DLLs
+# Check for OpenCL.dll in System32 and create import library if needed
+$openclDll = "C:\Windows\System32\OpenCL.dll"
+$importLibDir = Join-Path $env:TEMP "opencl-import-lib"
+$importLib = Join-Path $importLibDir "libOpenCL.a"
+
 $cgoLdflags = ""
 if ($openclLibPath) {
+    # Use found OpenCL.lib path
     $cgoLdflags = "-L`"$openclLibPath`" -lOpenCL"
+} elseif (Test-Path $openclDll) {
+    # Create import library from OpenCL.dll if it doesn't exist
+    if (-not (Test-Path $importLib)) {
+        Write-Host "Creating MinGW import library from OpenCL.dll..." -ForegroundColor Cyan
+        New-Item -ItemType Directory -Path $importLibDir -Force | Out-Null
+        
+        # Check for dlltool (MinGW tool to create import libraries)
+        $dlltoolPath = $null
+        if ($cCompilerPath) {
+            $gccDir = Split-Path $cCompilerPath
+            $dlltoolPath = Join-Path $gccDir "dlltool.exe"
+            if (-not (Test-Path $dlltoolPath)) {
+                # Try in bin directory
+                $dlltoolPath = Join-Path (Split-Path $gccDir) "bin\dlltool.exe"
+            }
+        }
+        
+        if ($dlltoolPath -and (Test-Path $dlltoolPath)) {
+            Write-Host "  Using dlltool: $dlltoolPath" -ForegroundColor Gray
+            # Create .def file first (we'll create a minimal one)
+            $defFile = Join-Path $importLibDir "OpenCL.def"
+            $defContent = @"
+EXPORTS
+clGetPlatformIDs
+clGetDeviceIDs
+clGetPlatformInfo
+clGetDeviceInfo
+clCreateContext
+clCreateContextFromType
+clCreateCommandQueue
+clCreateProgramWithSource
+clCreateProgramWithBinary
+clBuildProgram
+clGetProgramBuildInfo
+clCreateKernel
+clCreateKernelsInProgram
+clGetKernelInfo
+clGetKernelArgInfo
+clGetKernelWorkGroupInfo
+clSetKernelArg
+clCreateBuffer
+clCreateImage
+clGetSupportedImageFormats
+clEnqueueNDRangeKernel
+clEnqueueTask
+clEnqueueReadBuffer
+clEnqueueWriteBuffer
+clEnqueueCopyBuffer
+clEnqueueReadImage
+clEnqueueWriteImage
+clEnqueueMapBuffer
+clEnqueueMapImage
+clEnqueueUnmapMemObject
+clEnqueueBarrierWithWaitList
+clEnqueueMarkerWithWaitList
+clEnqueueFillBuffer
+clFinish
+clFlush
+clCreateUserEvent
+clSetUserEventStatus
+clWaitForEvents
+clGetEventProfilingInfo
+clReleaseEvent
+clReleaseMemObject
+clReleaseProgram
+clReleaseKernel
+clReleaseCommandQueue
+clReleaseContext
+"@
+            $defContent | Out-File -FilePath $defFile -Encoding ASCII
+            
+            # Create import library using dlltool
+            $dlltoolOutput = & $dlltoolPath --dllname $openclDll --def $defFile --output-lib $importLib 2>&1
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $importLib)) {
+                Write-Host "  Created import library: $importLib" -ForegroundColor Green
+            } else {
+                Write-Host "  Warning: Failed to create import library with dlltool" -ForegroundColor Yellow
+                Write-Host "  Output: $dlltoolOutput" -ForegroundColor Gray
+                $importLib = $null
+            }
+        } else {
+            Write-Host "  Warning: dlltool not found, cannot create import library" -ForegroundColor Yellow
+            Write-Host "  Trying to link directly with System32 path..." -ForegroundColor Yellow
+            $importLib = $null
+        }
+    } else {
+        Write-Host "Using existing import library: $importLib" -ForegroundColor Gray
+    }
+    
+    if ($importLib -and (Test-Path $importLib)) {
+        # Use the import library
+        $cgoLdflags = "-L`"$importLibDir`" -lOpenCL"
+    } else {
+        # Try linking directly with System32 path
+        $cgoLdflags = "-L`"C:\Windows\System32`" -lOpenCL"
+    }
 } else {
-    # Link against OpenCL.dll in System32 (linker will find it automatically)
+    Write-Host "Warning: OpenCL.dll not found in System32" -ForegroundColor Yellow
     $cgoLdflags = "-lOpenCL"
 }
 $env:CGO_LDFLAGS = $cgoLdflags
