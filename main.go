@@ -562,6 +562,13 @@ func testSingleKernel(device *cl.Device, event *nostr.Event, difficulty int, ker
 		numDigits = 10
 	}
 
+	// Calculate max batches based on difficulty: expected attempts = 2^difficulty
+	// Use 3x expected value to account for variance and ensure high success rate
+	maxBatches := int(math.Ceil((expectedAttempts * 3) / float64(batchSize)))
+	if maxBatches < 10 {
+		maxBatches = 10 // Minimum 10 batches
+	}
+
 	// Prepare event with placeholder nonce
 	testEvent := *event
 	noncePlaceholder := fmt.Sprintf("%0*d", numDigits, 0)
@@ -643,9 +650,6 @@ func testSingleKernel(device *cl.Device, event *nostr.Event, difficulty int, ker
 	}
 
 	// Execute kernel multiple times until we find a valid nonce or exhaust attempts
-	// For difficulty 20, expected attempts = 2^20 ≈ 1M, so we need ~100 batches of 10k
-	// Use 300 batches to account for variance (3x expected)
-	maxBatches := 300 // Limit to prevent infinite loops
 	for batch := 0; batch < maxBatches; batch++ {
 		baseNonce := int64(batch) * int64(batchSize)
 		baseNonceLow = uint32(baseNonce & 0xFFFFFFFF)
