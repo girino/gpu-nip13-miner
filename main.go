@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -201,6 +203,62 @@ func listAllDevices() {
 	os.Exit(0)
 }
 
+// createRealisticBenchmarkEvent creates a realistic Nostr event with random values
+// This makes the benchmark more representative of real mining scenarios
+func createRealisticBenchmarkEvent() nostr.Event {
+	// Generate random pubkey (32 bytes)
+	pubkeyBytes := make([]byte, 32)
+	rand.Read(pubkeyBytes)
+	pubkey := hex.EncodeToString(pubkeyBytes)
+
+	// Generate random content (varying length like real events)
+	contentLengths := []int{50, 100, 200, 500, 1000}
+	contentBytes := make([]byte, contentLengths[len(pubkeyBytes)%len(contentLengths)])
+	rand.Read(contentBytes)
+	content := hex.EncodeToString(contentBytes)
+
+	// Create realistic tags (like #p, #e, #t tags that are common in Nostr)
+	tags := nostr.Tags{
+		nostr.Tag{"p", pubkey, "wss://relay.example.com"},
+	}
+
+	// Randomly add more tags (30% chance)
+	if len(pubkeyBytes)%10 < 3 {
+		// Add another pubkey tag
+		anotherPubkey := make([]byte, 32)
+		rand.Read(anotherPubkey)
+		tags = append(tags, nostr.Tag{"p", hex.EncodeToString(anotherPubkey), ""})
+	}
+
+	// Randomly add event reference tag (20% chance)
+	if len(pubkeyBytes)%10 < 2 {
+		eventRef := make([]byte, 32)
+		rand.Read(eventRef)
+		tags = append(tags, nostr.Tag{"e", hex.EncodeToString(eventRef), "wss://relay.example.com"})
+	}
+
+	// Randomly add topic tags (40% chance)
+	if len(pubkeyBytes)%10 < 4 {
+		topics := []string{"bitcoin", "nostr", "opencl", "gpu", "mining", "crypto", "tech"}
+		topic := topics[len(pubkeyBytes)%len(topics)]
+		tags = append(tags, nostr.Tag{"t", topic})
+	}
+
+	// Create event with random values
+	event := nostr.Event{
+		Kind:      1, // Text note
+		Content:   content,
+		CreatedAt: nostr.Timestamp(time.Now().Unix()),
+		Tags:      tags,
+	}
+
+	// Set a random pubkey (we'll use a deterministic one for consistency in benchmark)
+	// But make it look realistic
+	event.PubKey = pubkey
+
+	return event
+}
+
 // runBenchmark tests different batch sizes to find the optimal one
 func runBenchmark(difficulty int, deviceIndex int) {
 	fmt.Fprintf(os.Stderr, "Running benchmark to find optimal batch size...\n")
@@ -259,14 +317,6 @@ func runBenchmark(difficulty int, deviceIndex int) {
 	deviceName := selectedDevice.Name()
 	fmt.Fprintf(os.Stderr, "Testing on device: %s\n\n", deviceName)
 
-	// Create a dummy event for benchmarking
-	testEvent := nostr.Event{
-		Kind:      1,
-		Content:   "Benchmark test event",
-		CreatedAt: nostr.Timestamp(time.Now().Unix()),
-		Tags:      nostr.Tags{},
-	}
-
 	// Test batch sizes from 3 to 6 (1000 to 1000000)
 	type benchmarkResult struct {
 		batchSizePower int
@@ -287,6 +337,10 @@ func runBenchmark(difficulty int, deviceIndex int) {
 		}
 
 		fmt.Fprintf(os.Stderr, "Testing batch size 10^%d (%d)... ", power, batchSize)
+
+		// Create a new realistic event for each batch size test
+		// This makes the benchmark more representative of real mining scenarios
+		testEvent := createRealisticBenchmarkEvent()
 
 		// Run benchmark for this batch size
 		rate := benchmarkBatchSize(selectedDevice, &testEvent, difficulty, batchSize)
