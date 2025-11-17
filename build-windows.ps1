@@ -69,8 +69,12 @@ if (-not $openclHeaderPath) {
     if (-not $openclHeaderPath) {
         Write-Host "`nOpenCL headers not found. Options:" -ForegroundColor Yellow
         Write-Host "1. Install Intel OpenCL SDK: https://www.intel.com/content/www/us/en/developer/tools/opencl-sdk/overview.html" -ForegroundColor White
-        Write-Host "2. Install Windows SDK (includes OpenCL headers)" -ForegroundColor White
+        Write-Host "2. Install Windows SDK (includes OpenCL headers):" -ForegroundColor White
+        Write-Host "   - Download from: https://developer.microsoft.com/en-us/windows/downloads/windows-sdk/" -ForegroundColor Gray
+        Write-Host "   - Or via Visual Studio Installer: Modify -> Individual components -> Windows SDK" -ForegroundColor Gray
         Write-Host "3. Download OpenCL headers manually and place in C:\OpenCL\include\CL" -ForegroundColor White
+        Write-Host "`nTo check if Windows SDK is installed, run:" -ForegroundColor Cyan
+        Write-Host "  Get-ChildItem 'C:\Program Files\Windows Kits\*\Include\*\um\CL' -ErrorAction SilentlyContinue" -ForegroundColor Gray
         exit 1
     }
 }
