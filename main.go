@@ -32,24 +32,27 @@ func vlog(format string, args ...interface{}) {
 // Returns true if valid, false otherwise.
 // Logs errors to stderr.
 func validateNonce(candidateNonce uint64, event *nostr.Event, difficulty int, numDigits int) bool {
-	// Create a copy of the event for validation
+	// Create a deep copy of the event for validation
 	testEvent := *event
+	// Deep copy tags to avoid modifying the original
+	testEvent.Tags = make(nostr.Tags, len(event.Tags))
+	for i, tag := range event.Tags {
+		testEvent.Tags[i] = make(nostr.Tag, len(tag))
+		copy(testEvent.Tags[i], tag)
+	}
 
 	// Format nonce with correct number of digits
 	nonceStr := fmt.Sprintf("%0*d", numDigits, candidateNonce)
 
-	// Find and update nonce tag
-	foundNonceTag := false
-	for i, tag := range testEvent.Tags {
-		if len(tag) > 0 && tag[0] == "nonce" {
-			testEvent.Tags[i] = nostr.Tag{"nonce", nonceStr, strconv.Itoa(difficulty)}
-			foundNonceTag = true
-			break
+	// Find and update nonce tag (remove old one first, then add new)
+	filteredTags := make(nostr.Tags, 0, len(testEvent.Tags))
+	for _, tag := range testEvent.Tags {
+		if len(tag) == 0 || tag[0] != "nonce" {
+			filteredTags = append(filteredTags, tag)
 		}
 	}
-	if !foundNonceTag {
-		testEvent.Tags = append(testEvent.Tags, nostr.Tag{"nonce", nonceStr, strconv.Itoa(difficulty)})
-	}
+	// Add new nonce tag
+	testEvent.Tags = append(filteredTags, nostr.Tag{"nonce", nonceStr, strconv.Itoa(difficulty)})
 
 	// Recalculate event ID by serializing and hashing (CPU-side validation)
 	eventIDHex := testEvent.GetID()
@@ -62,10 +65,27 @@ func validateNonce(candidateNonce uint64, event *nostr.Event, difficulty int, nu
 	}
 
 	// Additional validation: check committed difficulty matches
+	// Note: CommittedDifficulty reads from the nonce tag's third element
 	committedDiff := nip13.CommittedDifficulty(&testEvent)
 	if committedDiff != difficulty {
-		fmt.Fprintf(os.Stderr, "Validation error: Committed difficulty mismatch! Expected: %d, Got: %d (nonce: %d). Continuing...\n",
-			difficulty, committedDiff, candidateNonce)
+		// Debug: check what tags we have
+		var nonceTagFound bool
+		for _, tag := range testEvent.Tags {
+			if len(tag) > 0 && tag[0] == "nonce" {
+				nonceTagFound = true
+				if len(tag) < 3 {
+					fmt.Fprintf(os.Stderr, "Validation error: Nonce tag has wrong format (len=%d, expected 3): %v (nonce: %d). Continuing...\n",
+						len(tag), tag, candidateNonce)
+				} else {
+					fmt.Fprintf(os.Stderr, "Validation error: Committed difficulty mismatch! Expected: %d, Got: %d, Tag: %v (nonce: %d). Continuing...\n",
+						difficulty, committedDiff, tag, candidateNonce)
+				}
+				break
+			}
+		}
+		if !nonceTagFound {
+			fmt.Fprintf(os.Stderr, "Validation error: Nonce tag not found in event! (nonce: %d). Continuing...\n", candidateNonce)
+		}
 		return false
 	}
 
@@ -987,21 +1007,25 @@ func main() {
 					// Validate this candidate by recalculating hash on CPU
 					if validateNonce(candidateNonce, &event, *difficulty, currentDigits) {
 						// Valid nonce found! Recalculate event ID for final output
+						// Create a deep copy of the event
 						testEvent := event
 						nonceStr := fmt.Sprintf("%0*d", currentDigits, candidateNonce)
 
-						// Update nonce tag
-						foundNonceTag := false
-						for j, tag := range testEvent.Tags {
-							if len(tag) > 0 && tag[0] == "nonce" {
-								testEvent.Tags[j] = nostr.Tag{"nonce", nonceStr, strconv.Itoa(*difficulty)}
-								foundNonceTag = true
-								break
+						// Deep copy tags to avoid modifying the original
+						testEvent.Tags = make(nostr.Tags, len(event.Tags))
+						for j, tag := range event.Tags {
+							testEvent.Tags[j] = make(nostr.Tag, len(tag))
+							copy(testEvent.Tags[j], tag)
+						}
+
+						// Remove old nonce tags and add new one
+						filteredTags := make(nostr.Tags, 0, len(testEvent.Tags))
+						for _, tag := range testEvent.Tags {
+							if len(tag) == 0 || tag[0] != "nonce" {
+								filteredTags = append(filteredTags, tag)
 							}
 						}
-						if !foundNonceTag {
-							testEvent.Tags = append(testEvent.Tags, nostr.Tag{"nonce", nonceStr, strconv.Itoa(*difficulty)})
-						}
+						testEvent.Tags = append(filteredTags, nostr.Tag{"nonce", nonceStr, strconv.Itoa(*difficulty)})
 
 						// Recalculate event ID
 						eventIDHex := testEvent.GetID()
@@ -1101,3 +1125,4 @@ func main() {
 
 	fmt.Println(string(eventJSON))
 }
+
