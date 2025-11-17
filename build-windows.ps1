@@ -158,13 +158,16 @@ if (-not $openclHeaderPath) {
             Write-Host "Successfully set up OpenCL headers in: $openclHeaderPath" -ForegroundColor Green
         } else {
             Write-Host "`nAutomatic download failed. Manual options:" -ForegroundColor Yellow
+            Write-Host "`nQUICK FIX - Download OpenCL headers manually:" -ForegroundColor Cyan
+            Write-Host "1. Download ZIP from: https://github.com/KhronosGroup/OpenCL-Headers/archive/refs/heads/main.zip" -ForegroundColor White
+            Write-Host "2. Extract the ZIP file" -ForegroundColor White
+            Write-Host "3. Copy the 'opencl22' folder contents to: C:\OpenCL\include\CL" -ForegroundColor White
+            Write-Host "   (The folder structure should be: C:\OpenCL\include\CL\cl.h)" -ForegroundColor Gray
+            Write-Host "`nALTERNATIVE OPTIONS:" -ForegroundColor Cyan
             Write-Host "1. Install Intel OpenCL SDK: https://www.intel.com/content/www/us/en/developer/tools/opencl-sdk/overview.html" -ForegroundColor White
             Write-Host "2. Install Windows SDK (includes OpenCL headers):" -ForegroundColor White
             Write-Host "   - Download from: https://developer.microsoft.com/en-us/windows/downloads/windows-sdk/" -ForegroundColor Gray
             Write-Host "   - Or via Visual Studio Installer: Modify -> Individual components -> Windows SDK" -ForegroundColor Gray
-            Write-Host "3. Download OpenCL headers manually from:" -ForegroundColor White
-            Write-Host "   https://github.com/KhronosGroup/OpenCL-Headers" -ForegroundColor Gray
-            Write-Host "   Extract to: C:\OpenCL\include\CL" -ForegroundColor Gray
             Write-Host "`nTo check if Windows SDK is installed, run:" -ForegroundColor Cyan
             Write-Host "  Get-ChildItem 'C:\Program Files\Windows Kits\*\Include\*\um\CL' -ErrorAction SilentlyContinue" -ForegroundColor Gray
             exit 1
