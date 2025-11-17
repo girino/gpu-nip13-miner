@@ -207,14 +207,9 @@ func main() {
 	}
 	defer queue.Release()
 
-	// Read mining kernel source from file
-	kernelSource, err := os.ReadFile("mine.cl")
-	if err != nil {
-		log.Fatalf("Failed to read kernel file: %v", err)
-	}
-
+	// Use embedded mining kernel source
 	// Create program
-	program, err := context.CreateProgramWithSource([]string{string(kernelSource)})
+	program, err := context.CreateProgramWithSource([]string{mineKernelSource})
 	if err != nil {
 		log.Fatalf("Failed to create program: %v", err)
 	}
