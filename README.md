@@ -36,37 +36,32 @@ All kernels are located in the `kernel/` directory:
 Performance varies significantly based on the OpenCL device and kernel used. Use the `-benchmark` option to test all kernels and find the optimal configuration for your hardware.
 
 ### CPU Performance
-**~1M nonces/s** with Intel Core i5-9500T CPU (optimal batch size: 10^4)
-```
-Platform 0: Portable Computing Language (The pocl project)
-  [0] cpu-haswell-Intel(R) Core(TM) i5-9500T CPU @ 2.20GHz (GenuineIntel) - CPU
-       Version: OpenCL 3.0 PoCL HSTR: cpu-x86_64-pc-linux-gnu-haswell
-       Compute Units: 6, Work Group Size: 4096, Memory: 13850 MB
-       Optimal batch size: 10^4 (10,000) - 1.09M nonces/s
-       Note: Larger batch sizes may cause segmentation faults
-```
+**Intel Core i5-9500T CPU @ 2.20GHz**
+- **default kernel**: 1.18M nonces/s (optimal batch size: 10^4)
+- **ckolivas kernel**: 1.14M nonces/s (optimal batch size: 10^4)
+- **Recommendation**: Use `default` kernel with batch size 10^4
+
+**Note**: Batch size is limited to 10^4 for CPU devices to avoid segmentation faults.
 
 ### Intel GPU Performance
-**~2.8M nonces/s** with Intel UHD Graphics 630 (optimal batch size: 10^6)
-```
-Platform 0: Intel(R) OpenCL HD Graphics (Intel(R) Corporation)
-  [0] Intel(R) UHD Graphics 630 (Intel(R) Corporation) - GPU
-       Version: OpenCL 3.0 NEO
-       Compute Units: 24, Work Group Size: 256, Memory: 13030 MB
-       Optimal batch size: 10^6 (1,000,000) - 2.81M nonces/s
-```
+**Intel UHD Graphics 630**
+- **default kernel**: 2.67M nonces/s (optimal batch size: 10^10)
+- **ckolivas kernel**: 1.76M nonces/s (optimal batch size: 10^6)
+- **Recommendation**: Use `default` kernel with batch size 10^10
 
 ### NVIDIA GPU Performance
-**~40M nonces/s** with NVIDIA GeForce GTX 1660 Ti (optimal batch size: 10^8)
-```
-Platform 0: NVIDIA CUDA (NVIDIA Corporation)
-  [0] NVIDIA GeForce GTX 1660 Ti (NVIDIA Corporation) - GPU
-       Version: OpenCL 3.0 CUDA
-       Compute Units: 24, Work Group Size: 1024, Memory: 6143 MB
-       Optimal batch size: 10^8 (100,000,000) - 40.09M nonces/s
-```
 
-**Note:** Performance has been significantly improved (2x faster on NVIDIA GPUs) after optimizing the OpenCL kernel to return only the nonce index instead of the full hash result, reducing memory bandwidth by ~90%.
+**NVIDIA GeForce GTX 1660 Ti**
+- **default kernel**: 40.08M nonces/s (optimal batch size: 10^9)
+- **ckolivas kernel**: 60.15M nonces/s (optimal batch size: 10^8)
+- **Recommendation**: Use `ckolivas` kernel with batch size 10^8
+
+**NVIDIA Quadro P2200**
+- **default kernel**: 30.57M nonces/s (optimal batch size: 10^9)
+- **ckolivas kernel**: 45.01M nonces/s (optimal batch size: 10^8)
+- **Recommendation**: Use `ckolivas` kernel with batch size 10^8
+
+**Note:** Performance has been significantly improved after optimizing the OpenCL kernel to return only the nonce index instead of the full hash result, reducing memory bandwidth by ~90%. The `ckolivas` kernel shows superior performance on NVIDIA GPUs, achieving up to 50% better performance than the default kernel.
 
 ## Requirements
 
