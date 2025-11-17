@@ -234,12 +234,91 @@ if (-not $openclLibPath) {
     Write-Host "The linker will automatically find OpenCL.dll when linking with -lOpenCL" -ForegroundColor Yellow
 }
 
+# Detect C compiler (prefer MSYS2 MinGW64 GCC)
+Write-Host "`nDetecting C compiler..." -ForegroundColor Cyan
+$cCompiler = $null
+$cCompilerPath = $null
+
+# Check if gcc is already in PATH
+if (Get-Command gcc -ErrorAction SilentlyContinue) {
+    $gccPath = (Get-Command gcc).Source
+    Write-Host "Found GCC in PATH: $gccPath" -ForegroundColor Green
+    $cCompiler = "gcc"
+    $cCompilerPath = $gccPath
+} else {
+    # Try to find MSYS2 MinGW64 GCC
+    $msys2Paths = @(
+        "C:\msys64\mingw64\bin\gcc.exe",
+        "C:\msys64\ucrt64\bin\gcc.exe",
+        "C:\msys64\clang64\bin\gcc.exe",
+        "$env:USERPROFILE\msys64\mingw64\bin\gcc.exe",
+        "$env:USERPROFILE\msys64\ucrt64\bin\gcc.exe"
+    )
+    
+    foreach ($path in $msys2Paths) {
+        if (Test-Path $path) {
+            $cCompilerPath = $path
+            Write-Host "Found MSYS2 MinGW64 GCC: $path" -ForegroundColor Green
+            
+            # Add MSYS2 bin directory to PATH for this session
+            $msys2Bin = Split-Path $path
+            if ($env:PATH -notlike "*$msys2Bin*") {
+                $env:PATH = "$msys2Bin;$env:PATH"
+                Write-Host "Added MSYS2 bin to PATH: $msys2Bin" -ForegroundColor Gray
+            }
+            # Use just "gcc" since it's now in PATH
+            $cCompiler = "gcc"
+            break
+        }
+    }
+    
+    # Try other common GCC installations
+    if (-not $cCompilerPath) {
+        $otherGccPaths = @(
+            "C:\MinGW\bin\gcc.exe",
+            "C:\TDM-GCC-64\bin\gcc.exe",
+            "C:\Program Files\mingw-w64\*\mingw64\bin\gcc.exe",
+            "C:\Program Files (x86)\mingw-w64\*\mingw64\bin\gcc.exe"
+        )
+        
+        foreach ($pattern in $otherGccPaths) {
+            $found = Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) {
+                $cCompilerPath = $found.FullName
+                Write-Host "Found GCC: $cCompilerPath" -ForegroundColor Green
+                
+                # Add to PATH
+                $gccBin = Split-Path $cCompilerPath
+                if ($env:PATH -notlike "*$gccBin*") {
+                    $env:PATH = "$gccBin;$env:PATH"
+                    Write-Host "Added GCC bin to PATH: $gccBin" -ForegroundColor Gray
+                }
+                # Use just "gcc" since it's now in PATH
+                $cCompiler = "gcc"
+                break
+            }
+        }
+    }
+}
+
+if (-not $cCompilerPath) {
+    Write-Host "Error: C compiler (gcc) not found!" -ForegroundColor Red
+    Write-Host "`nPlease install MSYS2 MinGW64:" -ForegroundColor Yellow
+    Write-Host "1. Download from: https://www.msys2.org/" -ForegroundColor White
+    Write-Host "2. Install MSYS2" -ForegroundColor White
+    Write-Host "3. Open MSYS2 MinGW64 terminal and run: pacman -S mingw-w64-x86_64-gcc" -ForegroundColor White
+    Write-Host "4. Or add MSYS2 MinGW64 bin to your PATH:" -ForegroundColor White
+    Write-Host "   C:\msys64\mingw64\bin" -ForegroundColor Gray
+    exit 1
+}
+
 # Set up environment variables for CGO
 Write-Host "`nSetting up build environment..." -ForegroundColor Cyan
 
 $env:CGO_ENABLED = "1"
 $env:GOOS = "windows"
 $env:GOARCH = "amd64"
+$env:CC = $cCompiler
 
 # CGO CFLAGS
 $cgoCflags = "-DCL_TARGET_OPENCL_VERSION=200 -DCL_DEPTH_STENCIL=0x10FF -DCL_UNORM_INT24=0x10DF"
@@ -260,6 +339,7 @@ if ($openclLibPath) {
 }
 $env:CGO_LDFLAGS = $cgoLdflags
 
+Write-Host "CC: $env:CC" -ForegroundColor Gray
 Write-Host "CGO_CFLAGS: $env:CGO_CFLAGS" -ForegroundColor Gray
 Write-Host "CGO_LDFLAGS: $env:CGO_LDFLAGS" -ForegroundColor Gray
 
