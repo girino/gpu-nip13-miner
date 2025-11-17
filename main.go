@@ -262,7 +262,7 @@ func createRealisticBenchmarkEvent() nostr.Event {
 // runBenchmark tests different batch sizes to find the optimal one
 func runBenchmark(difficulty int, deviceIndex int) {
 	fmt.Fprintf(os.Stderr, "Running benchmark to find optimal batch size...\n")
-	fmt.Fprintf(os.Stderr, "This will test each batch size for at least 10 seconds.\n\n")
+	fmt.Fprintf(os.Stderr, "Each batch size will be tested 3 times (5 seconds each) with different events.\n\n")
 
 	// Get platforms
 	platforms, err := cl.GetPlatforms()
@@ -338,19 +338,36 @@ func runBenchmark(difficulty int, deviceIndex int) {
 
 		fmt.Fprintf(os.Stderr, "Testing batch size 10^%d (%d)... ", power, batchSize)
 
-		// Create a new realistic event for each batch size test
-		// This makes the benchmark more representative of real mining scenarios
-		testEvent := createRealisticBenchmarkEvent()
+		// Run benchmark 3 times with different events for more reliable results
+		var rates []float64
+		for run := 0; run < 3; run++ {
+			// Create a new realistic event for each run
+			// This makes the benchmark more representative of real mining scenarios
+			testEvent := createRealisticBenchmarkEvent()
 
-		// Run benchmark for this batch size
-		rate := benchmarkBatchSize(selectedDevice, &testEvent, difficulty, batchSize)
+			// Run benchmark for this batch size (5 seconds per run)
+			rate := benchmarkBatchSize(selectedDevice, &testEvent, difficulty, batchSize)
+			rates = append(rates, rate)
+
+			if run < 2 {
+				fmt.Fprintf(os.Stderr, "%.2fM ", rate/1000000)
+			}
+		}
+
+		// Calculate average rate
+		avgRate := 0.0
+		for _, r := range rates {
+			avgRate += r
+		}
+		avgRate /= float64(len(rates))
+
 		results = append(results, benchmarkResult{
 			batchSizePower: power,
 			batchSize:      batchSize,
-			rate:           rate,
+			rate:           avgRate,
 		})
 
-		fmt.Fprintf(os.Stderr, "%.2fM nonces/s\n", rate/1000000)
+		fmt.Fprintf(os.Stderr, "%.2fM nonces/s (avg of 3 runs)\n", avgRate/1000000)
 	}
 
 	// Find best batch size
@@ -493,8 +510,8 @@ func benchmarkBatchSize(device *cl.Device, event *nostr.Event, difficulty int, b
 		log.Fatalf("Failed to set kernel arg 7: %v", err)
 	}
 
-	// Benchmark for at least 10 seconds
-	benchmarkDuration := 10 * time.Second
+	// Benchmark for at least 5 seconds
+	benchmarkDuration := 5 * time.Second
 	startTime := time.Now()
 	totalTested := int64(0)
 	currentNonce := int64(1000000000) // Start at 10 digits
