@@ -341,7 +341,7 @@ if ($openclHeaderPath) {
     # MinGW GCC prefers Unix-style paths
     $drive = $openclHeaderPath.Substring(0, 1).ToLower()
     $path = $openclHeaderPath.Substring(3) -replace '\\', '/'
-    $mingwPath = "/$drive$path"
+    $mingwPath = "/$drive/$path"
     Write-Host "Using MinGW path format: $mingwPath" -ForegroundColor Gray
     $cgoCflags += " -I$mingwPath"
 }
