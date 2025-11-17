@@ -190,7 +190,7 @@ __kernel void mine_nonce(
     int difficulty,                    // Required leading zero bits
     int base_nonce_low,                // Starting nonce value (low 32 bits)
     int base_nonce_high,               // Starting nonce value (high 32 bits)
-    __global int* results              // Output: index of valid nonce (-1 if not found)
+    __global int* results,             // Output: index of valid nonce (-1 if not found)
     int num_digits                     // Number of digits for nonce (e.g., 10, 20, etc.)
 ) {
     int global_id = get_global_id(0);
