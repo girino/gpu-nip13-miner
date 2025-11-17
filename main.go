@@ -358,7 +358,9 @@ func runBenchmark(difficulty int, deviceIndex int, kernelType string) {
 	}
 
 	deviceName := selectedDevice.Name()
-	fmt.Fprintf(os.Stderr, "Testing on device: %s\n\n", deviceName)
+	fmt.Fprintf(os.Stderr, "Testing on device: %s\n", deviceName)
+	vlog("Using kernel: %s", kernelType)
+	fmt.Fprintf(os.Stderr, "\n")
 
 	// Test batch sizes from 3 to 10 (1000 to 10000000000)
 	type benchmarkResult struct {
@@ -469,6 +471,7 @@ func benchmarkBatchSizeSafe(device *cl.Device, event *nostr.Event, difficulty in
 	if err != nil {
 		return 0, err
 	}
+	vlog("Loading kernel: %s (function: %s)", kernelType, kernelName)
 
 	// Create program
 	program, err := context.CreateProgramWithSource([]string{kernelSource})
@@ -821,6 +824,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to get kernel source: %v", err)
 	}
+	vlog("Using kernel: %s (function: %s)", *kernelType, kernelName)
 
 	// Create program
 	program, err := context.CreateProgramWithSource([]string{kernelSource})
