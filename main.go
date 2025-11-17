@@ -33,10 +33,10 @@ func updateProgressBar(nonce int64, digits int, totalTested int64, startTime tim
 	if elapsed.Seconds() > 0 {
 		rate = float64(totalTested) / elapsed.Seconds()
 	}
-	
+
 	// Calculate expected iterations: 2^difficulty
 	expectedIterations := math.Pow(2, float64(difficulty))
-	
+
 	// Calculate percentage relative to expected iterations
 	var percent float64
 	if expectedIterations > 0 {
@@ -45,7 +45,7 @@ func updateProgressBar(nonce int64, digits int, totalTested int64, startTime tim
 			percent = 100
 		}
 	}
-	
+
 	// Format rate
 	var rateStr string
 	if rate >= 1000000 {
@@ -55,7 +55,7 @@ func updateProgressBar(nonce int64, digits int, totalTested int64, startTime tim
 	} else {
 		rateStr = fmt.Sprintf("%.0f", rate)
 	}
-	
+
 	// Format elapsed time
 	elapsedSec := int(elapsed.Seconds())
 	hours := elapsedSec / 3600
@@ -69,9 +69,9 @@ func updateProgressBar(nonce int64, digits int, totalTested int64, startTime tim
 	} else {
 		elapsedStr = fmt.Sprintf("%ds", seconds)
 	}
-	
+
 	// Print progress bar to stderr
-	fmt.Fprintf(os.Stderr, "\r[%d digits] Nonce: %d (%.1f%% of expected) | Rate: %s nonces/s | Elapsed: %s", 
+	fmt.Fprintf(os.Stderr, "\r[%d digits] Nonce: %d (%.1f%% of expected) | Rate: %s nonces/s | Elapsed: %s",
 		digits, nonce, percent, rateStr, elapsedStr)
 	os.Stderr.Sync() // Flush stderr to ensure it's visible
 }
