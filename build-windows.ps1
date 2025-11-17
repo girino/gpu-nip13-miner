@@ -33,76 +33,122 @@ function Download-OpenCLHeaders {
         }
     }
     
-    Write-Host "`nDownloading OpenCL headers from Khronos Group using git..." -ForegroundColor Cyan
+    # Try git first, then fall back to ZIP download
+    $gitSuccess = $false
     
     # Check if git is available
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        Write-Host "  Error: git is not installed or not in PATH" -ForegroundColor Red
-        Write-Host "  Please install git from: https://git-scm.com/download/win" -ForegroundColor Yellow
-        return $null
-    }
-    
-    # Create temporary directory for cloning
-    $tempDir = Join-Path $env:TEMP "opencl-headers-temp"
-    if (Test-Path $tempDir) {
-        Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    
-    try {
-        # Clone the repository (shallow clone)
-        Write-Host "  Cloning OpenCL-Headers repository..." -ForegroundColor Gray
-        $cloneOutput = & git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers.git $tempDir 2>&1 | Out-String
-        $exitCode = $LASTEXITCODE
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        Write-Host "`nDownloading OpenCL headers from Khronos Group using git..." -ForegroundColor Cyan
         
-        # Check if clone was successful by verifying the directory was created
-        if ($exitCode -ne 0 -or -not (Test-Path $tempDir)) {
-            Write-Host "  Error: Failed to clone repository (exit code: $exitCode)" -ForegroundColor Red
-            if ($cloneOutput) {
-                Write-Host "  Git output: $cloneOutput" -ForegroundColor Gray
-            }
-            return $null
-        }
-        
-        Write-Host "  Repository cloned successfully" -ForegroundColor Green
-        
-        # Create target directory
-        New-Item -ItemType Directory -Path $openclDir -Force | Out-Null
-        
-        # Copy CL directory contents
-        $sourceCL = Join-Path $tempDir "CL"
-        if (Test-Path $sourceCL) {
-            Write-Host "  Copying headers from repository..." -ForegroundColor Gray
-            Copy-Item -Path "$sourceCL\*" -Destination $openclDir -Recurse -Force
-            $headerCount = (Get-ChildItem -Path $openclDir -File).Count
-            if ($headerCount -gt 0) {
-                Write-Host "  Copied $headerCount header files to $openclDir" -ForegroundColor Green
-                return $openclIncludeDir
-            } else {
-                Write-Host "  Error: No header files were copied" -ForegroundColor Red
-                return $null
-            }
-        } else {
-            Write-Host "  Error: CL directory not found in repository" -ForegroundColor Red
-            Write-Host "  Repository contents:" -ForegroundColor Gray
-            if (Test-Path $tempDir) {
-                Get-ChildItem $tempDir | Select-Object -First 10 | ForEach-Object {
-                    Write-Host "    $($_.Name)" -ForegroundColor Gray
-                }
-            }
-            return $null
-        }
-    } catch {
-        Write-Host "  Error: Exception during download - $($_.Exception.Message)" -ForegroundColor Red
-        if ($_.Exception.InnerException) {
-            Write-Host "  Inner exception: $($_.Exception.InnerException.Message)" -ForegroundColor Gray
-        }
-        return $null
-    } finally {
-        # Clean up temporary directory
+        # Create temporary directory for cloning
+        $tempDir = Join-Path $env:TEMP "opencl-headers-temp"
         if (Test-Path $tempDir) {
-            Write-Host "  Cleaning up temporary directory..." -ForegroundColor Gray
             Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
         }
+        
+        try {
+            # Clone the repository (shallow clone)
+            Write-Host "  Cloning OpenCL-Headers repository..." -ForegroundColor Gray
+            $cloneOutput = & git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers.git $tempDir 2>&1 | Out-String
+            $exitCode = $LASTEXITCODE
+            
+            # Check if clone was successful by verifying the directory was created
+            if ($exitCode -eq 0 -and (Test-Path $tempDir)) {
+                Write-Host "  Repository cloned successfully" -ForegroundColor Green
+                
+                # Create target directory
+                New-Item -ItemType Directory -Path $openclDir -Force | Out-Null
+                
+                # Copy CL directory contents
+                $sourceCL = Join-Path $tempDir "CL"
+                if (Test-Path $sourceCL) {
+                    Write-Host "  Copying headers from repository..." -ForegroundColor Gray
+                    Copy-Item -Path "$sourceCL\*" -Destination $openclDir -Recurse -Force
+                    $headerCount = (Get-ChildItem -Path $openclDir -File).Count
+                    if ($headerCount -gt 0) {
+                        Write-Host "  Copied $headerCount header files to $openclDir" -ForegroundColor Green
+                        $gitSuccess = $true
+                    }
+                }
+            }
+        } catch {
+            Write-Host "  Git clone failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        } finally {
+            # Clean up temporary directory
+            if (Test-Path $tempDir) {
+                Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } else {
+        Write-Host "`nGit not available, will try ZIP download instead..." -ForegroundColor Yellow
+    }
+    
+    # If git failed or not available, try ZIP download
+    if (-not $gitSuccess) {
+        Write-Host "`nDownloading OpenCL headers from GitHub ZIP..." -ForegroundColor Cyan
+        
+        # Enable TLS 1.2 for older PowerShell versions
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        
+        $zipUrl = "https://github.com/KhronosGroup/OpenCL-Headers/archive/refs/heads/main.zip"
+        $zipFile = Join-Path $env:TEMP "opencl-headers.zip"
+        $extractDir = Join-Path $env:TEMP "opencl-headers-extract"
+        
+        try {
+            # Download ZIP file
+            Write-Host "  Downloading ZIP from GitHub..." -ForegroundColor Gray
+            Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile -UseBasicParsing -ErrorAction Stop
+            
+            # Extract ZIP file
+            Write-Host "  Extracting ZIP file..." -ForegroundColor Gray
+            if (Test-Path $extractDir) {
+                Remove-Item -Path $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Expand-Archive -Path $zipFile -DestinationPath $extractDir -Force
+            
+            # Find the CL directory in the extracted files
+            $extractedCL = Join-Path $extractDir "OpenCL-Headers-main\CL"
+            if (-not (Test-Path $extractedCL)) {
+                # Try alternative path structure
+                $extractedCL = Get-ChildItem -Path $extractDir -Recurse -Directory -Filter "CL" -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($extractedCL) {
+                    $extractedCL = $extractedCL.FullName
+                }
+            }
+            
+            if (Test-Path $extractedCL) {
+                # Create target directory
+                New-Item -ItemType Directory -Path $openclDir -Force | Out-Null
+                
+                # Copy CL directory contents
+                Write-Host "  Copying headers from extracted ZIP..." -ForegroundColor Gray
+                Copy-Item -Path "$extractedCL\*" -Destination $openclDir -Recurse -Force
+                $headerCount = (Get-ChildItem -Path $openclDir -File).Count
+                if ($headerCount -gt 0) {
+                    Write-Host "  Copied $headerCount header files to $openclDir" -ForegroundColor Green
+                    return $openclIncludeDir
+                } else {
+                    Write-Host "  Error: No header files were copied from ZIP" -ForegroundColor Red
+                    return $null
+                }
+            } else {
+                Write-Host "  Error: CL directory not found in extracted ZIP" -ForegroundColor Red
+                return $null
+            }
+        } catch {
+            Write-Host "  Error: Failed to download or extract ZIP - $($_.Exception.Message)" -ForegroundColor Red
+            return $null
+        } finally {
+            # Clean up temporary files
+            if (Test-Path $zipFile) {
+                Remove-Item -Path $zipFile -Force -ErrorAction SilentlyContinue
+            }
+            if (Test-Path $extractDir) {
+                Remove-Item -Path $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } else {
+        return $openclIncludeDir
     }
 }
 
