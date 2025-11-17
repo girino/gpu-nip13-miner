@@ -190,7 +190,7 @@ __kernel void mine_nonce(
     int difficulty,                    // Required leading zero bits
     int base_nonce_low,                // Starting nonce value (low 32 bits)
     int base_nonce_high,               // Starting nonce value (high 32 bits)
-    __global uchar* results,           // Output: [found (1 byte), nonce (8 bytes), event_id (32 bytes)]
+    __global int* results              // Output: index of valid nonce (-1 if not found)
     int num_digits                     // Number of digits for nonce (e.g., 10, 20, etc.)
 ) {
     int global_id = get_global_id(0);
@@ -218,7 +218,7 @@ __kernel void mine_nonce(
     
     // Check if nonce exceeds maximum
     if (nonce > max_nonce) {
-        results[global_id * 41] = 0; // Not found
+        results[global_id] = -1; // Not found
         return;
     }
     
@@ -226,7 +226,7 @@ __kernel void mine_nonce(
     // Most events are < 1KB, so this should fit in private memory
     uchar serialized_copy[2048]; // Max 2KB per work item
     if (serialized_length > 2048) {
-        results[global_id * 41] = 0; // Event too large
+        results[global_id] = -1; // Event too large
         return;
     }
     
@@ -239,7 +239,7 @@ __kernel void mine_nonce(
     // Use a fixed-size array that can handle up to 22 digits (for difficulty 64)
     uchar nonce_str[22];
     if (num_digits > 22) {
-        results[global_id * 41] = 0; // Too many digits
+        results[global_id] = -1; // Too many digits
         return;
     }
     int_to_ascii(nonce, nonce_str, num_digits);
@@ -257,19 +257,10 @@ __kernel void mine_nonce(
     int leading_zeros = count_leading_zero_bits(hash);
     
     if (leading_zeros >= difficulty) {
-        // Found valid nonce!
-        results[global_id * 41] = 1; // Found flag
-        // Store nonce (8 bytes, big-endian)
-        ulong nonce_be = nonce;
-        for (int i = 0; i < 8; i++) {
-            results[global_id * 41 + 1 + i] = (uchar)((nonce_be >> (56 - i * 8)) & 0xff);
-        }
-        // Store event ID (32 bytes)
-        for (int i = 0; i < 32; i++) {
-            results[global_id * 41 + 9 + i] = hash[i];
-        }
+        // Found valid nonce! Return the index (global_id)
+        results[global_id] = global_id;
     } else {
-        results[global_id * 41] = 0; // Not found
+        results[global_id] = -1; // Not found
     }
 }
 

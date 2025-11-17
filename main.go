@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -29,20 +28,15 @@ func vlog(format string, args ...interface{}) {
 	}
 }
 
-// validateNonce validates a candidate nonce and event ID.
+// validateNonce validates a candidate nonce by recalculating the hash on CPU.
 // Returns true if valid, false otherwise.
 // Logs errors to stderr.
-func validateNonce(candidateNonce uint64, candidateEventID []byte, event *nostr.Event, difficulty int) bool {
+func validateNonce(candidateNonce uint64, event *nostr.Event, difficulty int, numDigits int) bool {
 	// Create a copy of the event for validation
 	testEvent := *event
 
-	// Calculate how many digits the candidate nonce needs
-	foundNonceDigits := int(math.Ceil(math.Log10(float64(candidateNonce) + 1)))
-	minRequiredDigits := difficulty/4 + 2
-	if foundNonceDigits < minRequiredDigits {
-		foundNonceDigits = minRequiredDigits
-	}
-	nonceStr := fmt.Sprintf("%0*d", foundNonceDigits, candidateNonce)
+	// Format nonce with correct number of digits
+	nonceStr := fmt.Sprintf("%0*d", numDigits, candidateNonce)
 
 	// Find and update nonce tag
 	foundNonceTag := false
@@ -57,20 +51,8 @@ func validateNonce(candidateNonce uint64, candidateEventID []byte, event *nostr.
 		testEvent.Tags = append(testEvent.Tags, nostr.Tag{"nonce", nonceStr, strconv.Itoa(difficulty)})
 	}
 
-	// Set the event ID from candidate
-	eventIDHex := ""
-	for _, b := range candidateEventID {
-		eventIDHex += fmt.Sprintf("%02x", b)
-	}
-	testEvent.ID = eventIDHex
-
-	// Validate the event ID by re-serializing
-	expectedID := testEvent.GetID()
-	if expectedID != eventIDHex {
-		fmt.Fprintf(os.Stderr, "Validation error: Event ID mismatch! Expected: %s, Got: %s (nonce: %d). Continuing...\n",
-			expectedID, eventIDHex, candidateNonce)
-		return false
-	}
+	// Recalculate event ID by serializing and hashing (CPU-side validation)
+	eventIDHex := testEvent.GetID()
 
 	// Validate difficulty using NIP-13 Check function
 	if err := nip13.Check(eventIDHex, difficulty); err != nil {
@@ -471,7 +453,7 @@ func benchmarkBatchSizeSafe(device *cl.Device, event *nostr.Event, difficulty in
 	}
 
 	// Create results buffer
-	resultSize := 41
+	resultSize := 4 // int32
 	resultsBufferSize := batchSize * resultSize
 	maxResultsBufferSize := 100 * 1024 * 1024
 	if resultsBufferSize > maxResultsBufferSize {
@@ -685,9 +667,9 @@ func main() {
 		// Use compute units and work group size as indicators
 		estimatedCapacity := maxComputeUnits * maxWorkGroupSize
 
-		// Memory check: each work item needs ~2KB private + 41 bytes output
+		// Memory check: each work item needs ~2KB private + 4 bytes output
 		// Use 1% of global memory as a safe limit
-		memoryLimit := int(globalMemSize / (2048 + 41) / 100)
+		memoryLimit := int(globalMemSize / (2048 + 4) / 100)
 
 		// Choose batch size based on capacity
 		// Conservative estimate: use 10-50% of estimated capacity
@@ -836,8 +818,9 @@ func main() {
 	vlog("Mining with difficulty %d (leading zero bits)", *difficulty)
 	vlog("Batch size: %d nonces", batchSize)
 
-	// Results buffer: [found (1 byte), nonce (8 bytes), event_id (32 bytes)] per work item
-	resultSize := 41 // 1 + 8 + 32
+	// Results buffer: index (int32, 4 bytes) per work item
+	// -1 means not found, >= 0 means valid nonce found at that index
+	resultSize := 4 // int32
 	resultsBufferSize := batchSize * resultSize
 
 	// Safety check: limit results buffer to reasonable size (100MB)
@@ -993,20 +976,42 @@ func main() {
 				log.Fatalf("Failed to read results buffer: %v", err)
 			}
 
-			// Check results
+			// Check results - read as int32 array
+			resultIndices := (*[1 << 28]int32)(unsafe.Pointer(&results[0]))[:remaining:remaining]
 			for i := 0; i < remaining; i++ {
-				if results[i*resultSize] == 1 {
-					// Found candidate nonce!
-					foundNonceBytes := results[i*resultSize+1 : i*resultSize+9]
-					candidateNonce := binary.BigEndian.Uint64(foundNonceBytes)
-					candidateEventID := make([]byte, 32)
-					copy(candidateEventID, results[i*resultSize+9:i*resultSize+41])
+				index := resultIndices[i]
+				if index >= 0 {
+					// Found candidate nonce! Calculate nonce from index
+					candidateNonce := uint64(currentNonce) + uint64(index)
 
-					// Validate this candidate before accepting it
-					if validateNonce(candidateNonce, candidateEventID, &event, *difficulty) {
-						// Valid nonce found!
+					// Validate this candidate by recalculating hash on CPU
+					if validateNonce(candidateNonce, &event, *difficulty, currentDigits) {
+						// Valid nonce found! Recalculate event ID for final output
+						testEvent := event
+						nonceStr := fmt.Sprintf("%0*d", currentDigits, candidateNonce)
+
+						// Update nonce tag
+						foundNonceTag := false
+						for j, tag := range testEvent.Tags {
+							if len(tag) > 0 && tag[0] == "nonce" {
+								testEvent.Tags[j] = nostr.Tag{"nonce", nonceStr, strconv.Itoa(*difficulty)}
+								foundNonceTag = true
+								break
+							}
+						}
+						if !foundNonceTag {
+							testEvent.Tags = append(testEvent.Tags, nostr.Tag{"nonce", nonceStr, strconv.Itoa(*difficulty)})
+						}
+
+						// Recalculate event ID
+						eventIDHex := testEvent.GetID()
+						foundEventID, err = hex.DecodeString(eventIDHex)
+						if err != nil {
+							fmt.Fprintf(os.Stderr, "Error decoding event ID: %v\n", err)
+							continue
+						}
+
 						foundNonce = candidateNonce
-						foundEventID = candidateEventID
 						found = true
 						break
 					} else {
