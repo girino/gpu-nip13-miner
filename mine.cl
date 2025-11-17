@@ -1,6 +1,5 @@
-// SHA256 OpenCL Kernel
-// Based on the SHA-256 algorithm specification
-// Handles inputs of any length by processing multiple 512-bit blocks
+// NIP-13 Mining Kernel
+// Mines nonces in parallel to find event IDs with required leading zero bits
 
 #define ROTRIGHT(a,b) (((a) >> (b)) | ((a) << (32-(b))))
 
@@ -87,7 +86,17 @@ void process_block(uchar block[64], uint h[8]) {
     h[7] += h_val;
 }
 
-__kernel void sha256(__global uchar* input, __global uchar* output, int input_length) {
+// Convert integer to 10-digit decimal ASCII string
+void int_to_ascii(ulong n, uchar str[10]) {
+    // Convert to 10-digit string (digits from right to left)
+    for (int i = 9; i >= 0; i--) {
+        str[i] = '0' + (n % 10);
+        n /= 10;
+    }
+}
+
+// Calculate SHA256 of input (works with any address space)
+void sha256_generic(uchar* input, int input_length, uchar output[32]) {
     // SHA256 initial hash values
     uint h[8] = {
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
@@ -152,3 +161,88 @@ __kernel void sha256(__global uchar* input, __global uchar* output, int input_le
         output[i * 4 + 3] = (uchar)(h[i] & 0xff);
     }
 }
+
+// Count leading zero bits in a byte array
+int count_leading_zero_bits(uchar hash[32]) {
+    int count = 0;
+    for (int i = 0; i < 32; i++) {
+        uchar b = hash[i];
+        if (b == 0) {
+            count += 8;
+        } else {
+            // Count leading zeros in this byte
+            for (int j = 7; j >= 0; j--) {
+                if ((b >> j) & 1) {
+                    break;
+                }
+                count++;
+            }
+            break;
+        }
+    }
+    return count;
+}
+
+__kernel void mine_nonce(
+    __global uchar* base_serialized,  // Base serialized event with placeholder nonce
+    int serialized_length,             // Length of serialized event
+    int nonce_offset,                  // Byte position where nonce starts in string
+    int difficulty,                    // Required leading zero bits
+    int base_nonce,                    // Starting nonce value (e.g., 1000000000)
+    __global uchar* results            // Output: [found (1 byte), nonce (8 bytes), event_id (32 bytes)]
+) {
+    int global_id = get_global_id(0);
+    ulong nonce = (ulong)base_nonce + (ulong)global_id;
+    
+    // Check if nonce exceeds maximum (9999999999)
+    if (nonce > 9999999999UL) {
+        results[global_id * 41] = 0; // Not found
+        return;
+    }
+    
+    // Use private memory (stack) for work item's serialized string
+    // Most events are < 1KB, so this should fit in private memory
+    uchar serialized_copy[2048]; // Max 2KB per work item
+    if (serialized_length > 2048) {
+        results[global_id * 41] = 0; // Event too large
+        return;
+    }
+    
+    // Copy base serialized string to private buffer
+    for (int i = 0; i < serialized_length; i++) {
+        serialized_copy[i] = base_serialized[i];
+    }
+    
+    // Convert nonce to 10-digit ASCII string
+    uchar nonce_str[10];
+    int_to_ascii(nonce, nonce_str);
+    
+    // Replace nonce in the serialized string
+    for (int i = 0; i < 10; i++) {
+        serialized_copy[nonce_offset + i] = nonce_str[i];
+    }
+    
+    // Calculate SHA256
+    uchar hash[32];
+    sha256_generic(serialized_copy, serialized_length, hash);
+    
+    // Check if difficulty requirement is met
+    int leading_zeros = count_leading_zero_bits(hash);
+    
+    if (leading_zeros >= difficulty) {
+        // Found valid nonce!
+        results[global_id * 41] = 1; // Found flag
+        // Store nonce (8 bytes, big-endian)
+        ulong nonce_be = nonce;
+        for (int i = 0; i < 8; i++) {
+            results[global_id * 41 + 1 + i] = (uchar)((nonce_be >> (56 - i * 8)) & 0xff);
+        }
+        // Store event ID (32 bytes)
+        for (int i = 0; i < 32; i++) {
+            results[global_id * 41 + 9 + i] = hash[i];
+        }
+    } else {
+        results[global_id * 41] = 0; // Not found
+    }
+}
+
