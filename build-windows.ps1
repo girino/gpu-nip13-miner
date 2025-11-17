@@ -458,7 +458,9 @@ $importLib = Join-Path $importLibDir "libOpenCL.a"
 $cgoLdflags = ""
 if ($openclLibPath) {
     # Use found OpenCL.lib path
-    $cgoLdflags = "-L`"$openclLibPath`" -lOpenCL"
+    # Convert Windows path to MinGW format for LDFLAGS
+    $libPath = $openclLibPath -replace '\\', '/'
+    $cgoLdflags = "-L$libPath -lOpenCL"
 } elseif (Test-Path $openclDll) {
     # Create import library from OpenCL.dll if it doesn't exist
     if (-not (Test-Path $importLib)) {
@@ -562,10 +564,12 @@ clReleaseContext
     
     if ($importLib -and (Test-Path $importLib)) {
         # Use the import library
-        $cgoLdflags = "-L`"$importLibDir`" -lOpenCL"
+        # Convert Windows path to MinGW format for LDFLAGS
+        $libPath = $importLibDir -replace '\\', '/'
+        $cgoLdflags = "-L$libPath -lOpenCL"
     } else {
         # Try linking directly with System32 path
-        $cgoLdflags = "-L`"C:\Windows\System32`" -lOpenCL"
+        $cgoLdflags = "-LC:/Windows/System32 -lOpenCL"
     }
 } else {
     Write-Host "Warning: OpenCL.dll not found in System32" -ForegroundColor Yellow
